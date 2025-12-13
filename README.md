@@ -124,7 +124,6 @@ risurealm_search/
 | 등급 | SFW, NSFW |
 | 성별 | Female, Male, Multiple, Other |
 | 언어 | Korean, English, Japanese, Multilingual, Other |
-| 장르 | 자유 입력 (예: fantasy, romance, school, horror 등) |
 
 ## API
 

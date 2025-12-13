@@ -27,7 +27,6 @@ SYSTEM_PROMPT = """다음 AI 캐릭터 정보를 분석하여 메타데이터를
 
 추출할 항목:
 - content_rating: "sfw" | "nsfw" | "unknown" (성적 콘텐츠 포함 여부)
-- genres: 해당하는 장르 목록 (자유롭게 작성, 예: fantasy, romance, school, scifi, modern, historical, horror, comedy, dark_fantasy, isekai, simulator, action, mystery, slice_of_life 등)
 - setting: 시대/배경 설정 (modern, medieval, futuristic, contemporary, fantasy_world 등)
 - character_gender: 봇의 주요 캐릭터 성별 (female, male, multiple, other, unknown 중 선택)
   - 중요: 유저가 맡는 역할이 아닌, 봇이 연기하는 NPC/AI 캐릭터의 성별을 기준으로 판단
@@ -191,7 +190,6 @@ class LLMClient:
                 # 성공
                 tags = CharacterTags(
                     content_rating=parsed.get("content_rating", "unknown"),
-                    genres=parsed.get("genres", []),
                     setting=parsed.get("setting", ""),
                     character_gender=parsed.get("character_gender", "other"),
                     character_traits=parsed.get("character_traits", []),

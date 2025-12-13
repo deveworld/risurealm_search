@@ -12,22 +12,6 @@ class ContentRating(str, Enum):
     UNKNOWN = "unknown"
 
 
-class Genre(str, Enum):
-    FANTASY = "fantasy"
-    ROMANCE = "romance"
-    SCHOOL = "school"
-    SCIFI = "scifi"
-    MODERN = "modern"
-    HISTORICAL = "historical"
-    HORROR = "horror"
-    COMEDY = "comedy"
-    DARK_FANTASY = "dark_fantasy"
-    ISEKAI = "isekai"
-    SIMULATOR = "simulator"
-    GAME_ORIGINAL = "game_original"
-    ANIME_ORIGINAL = "anime_original"
-
-
 class CharacterGender(str, Enum):
     FEMALE = "female"
     MALE = "male"
@@ -39,7 +23,6 @@ class Language(str, Enum):
     KOREAN = "korean"
     ENGLISH = "english"
     JAPANESE = "japanese"
-    CHINESE = "chinese"
     MULTILINGUAL = "multilingual"
     OTHER = "other"
 
@@ -48,7 +31,6 @@ class CharacterTags(BaseModel):
     """LLM이 추출한 캐릭터 태그"""
 
     content_rating: ContentRating = ContentRating.UNKNOWN
-    genres: list[str] = []  # Genre enum 값들
     setting: str = ""  # modern, medieval, futuristic 등
     character_gender: CharacterGender = CharacterGender.OTHER
     character_traits: list[str] = []  # yandere, tsundere 등
