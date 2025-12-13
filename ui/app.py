@@ -24,11 +24,30 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         if not query.strip():
             return "검색어를 입력하세요."
 
-        # 필터 (체크된 항목들을 소문자로)
+        # 전체 선택된 경우 빈 리스트로 (필터 미적용)
+        all_ratings = ["sfw", "nsfw"]
+        all_genders = ["female", "male", "multiple", "other"]
+        all_languages = ["korean", "english", "japanese", "multilingual", "chinese"]
+        all_genres = [
+            "fantasy", "modern", "romance", "comedy", "dark_fantasy",
+            "school", "simulator", "game_original", "scifi", "horror",
+            "historical", "anime_original", "isekai", "adventure"
+        ]
+
         rating_filters = [r.lower() for r in ratings] if ratings else []
         gender_filters = [g.lower() for g in genders] if genders else []
         language_filters = [l.lower() for l in languages] if languages else []
         genre_filters = [g.lower() for g in genres] if genres else []
+
+        # 전체 선택 시 필터 미적용 (성능 최적화)
+        if set(rating_filters) >= set(all_ratings):
+            rating_filters = []
+        if set(gender_filters) >= set(all_genders):
+            gender_filters = []
+        if set(language_filters) >= set(all_languages):
+            language_filters = []
+        if set(genre_filters) >= set(all_genres):
+            genre_filters = []
 
         search_query = SearchQuery(
             q=query,
@@ -100,35 +119,41 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
             )
             search_btn = gr.Button("검색", variant="primary", scale=1)
 
+        # 필터 옵션 정의
+        rating_choices = ["SFW", "NSFW"]
+        gender_choices = ["Female", "Male", "Multiple", "Other"]
+        language_choices = ["Korean", "English", "Japanese", "Multilingual", "Chinese"]
+        genre_choices = [
+            "Fantasy", "Modern", "Romance", "Comedy", "Dark_fantasy",
+            "School", "Simulator", "Game_original", "Scifi", "Horror",
+            "Historical", "Anime_original", "Isekai", "Adventure"
+        ]
+
         with gr.Row():
             with gr.Column(scale=1):
                 rating_input = gr.CheckboxGroup(
                     label="등급",
-                    choices=["SFW", "NSFW"],
-                    value=[],
+                    choices=rating_choices,
+                    value=rating_choices,  # 전체 선택
                 )
             with gr.Column(scale=1):
                 gender_input = gr.CheckboxGroup(
                     label="성별",
-                    choices=["Female", "Male", "Multiple", "Other"],
-                    value=[],
+                    choices=gender_choices,
+                    value=gender_choices,  # 전체 선택
                 )
             with gr.Column(scale=1):
                 language_input = gr.CheckboxGroup(
                     label="언어",
-                    choices=["Korean", "English", "Japanese", "Multilingual", "Chinese"],
-                    value=[],
+                    choices=language_choices,
+                    value=language_choices,  # 전체 선택
                 )
 
         with gr.Row():
             genre_input = gr.CheckboxGroup(
                 label="장르",
-                choices=[
-                    "Fantasy", "Modern", "Romance", "Comedy", "Dark_fantasy",
-                    "School", "Simulator", "Game_original", "Scifi", "Horror",
-                    "Historical", "Anime_original", "Isekai", "Adventure"
-                ],
-                value=[],
+                choices=genre_choices,
+                value=genre_choices,  # 전체 선택
             )
 
         with gr.Row():
