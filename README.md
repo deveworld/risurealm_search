@@ -1,96 +1,143 @@
-# RisuRealm Search Engine Project
+# RisuRealm Search
 
-RisuRealm(realm.risuai.net)의 캐릭터 데이터를 수집하고, LLM을 활용하여 메타데이터(태그, 장르, 성격 등)를 자동으로 추출하여 고급 검색 기능을 제공하기 위한 프로젝트입니다.
+RisuRealm(realm.risuai.net) 캐릭터 검색 엔진입니다. LLM 기반 메타데이터 추출과 벡터 검색을 통해 자연어로 캐릭터를 검색할 수 있습니다.
 
-## 기능
+## 주요 기능
 
-- **데이터 수집 (Scraper)**: RisuRealm의 SFW/NSFW 캐릭터 목록 및 상세 정보를 비동기(Async)로 고속 수집합니다.
-    - Rate Limit 자동 감지 및 재시도 (Exponential Backoff)
-    - 캐릭터 타입(Normal/CharX) 자동 판별 및 최적화된 다운로드 경로 선택
-    - 중복 데이터 제거 및 증분 수집 지원
-    - 진행 상황 자동 저장 (중단 시 이어서 실행 가능)
+- **자연어 검색**: "판타지 세계의 얀데레 여자 캐릭터" 같은 자연어 쿼리 지원
+- **다중 필터링**: 등급(SFW/NSFW), 성별, 언어, 장르별 필터
+- **다운로드 가중치**: 인기 캐릭터가 상위에 노출
+- **실시간 업데이트**: 신규 캐릭터 자동 동기화
 
-- **LLM 태깅 (Tagger)**: 수집된 캐릭터 정보를 LLM(Groq API)에 전송하여 정규화된 태그를 추출합니다.
-    - 멀티 모델 폴백 전략: 주 모델 실패 시 예비 모델(Llama 3, Mixtral 등)로 자동 전환하여 성공률 극대화
-    - 병렬 처리 및 Rate Limit 관리
+## 기술 스택
 
-## 설치 방법
+| 구성요소 | 기술 |
+|---------|------|
+| 임베딩 | Voyage AI (다국어 지원) |
+| 벡터 DB | ChromaDB |
+| LLM 태깅 | Groq API (Llama 3) |
+| API 서버 | FastAPI |
+| UI | Gradio |
+| 배포 | Docker + GitHub Actions |
 
-### 1. 환경 설정
+## 설치
 
-Python 3.11 이상이 필요합니다.
+### 요구사항
+
+- Python 3.11+
+- [uv](https://github.com/astral-sh/uv) (권장) 또는 pip
+
+### 로컬 설치
 
 ```bash
-# 가상환경 생성 및 활성화
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+# 저장소 클론
+git clone https://github.com/deveworld/risurealm_search.git
+cd risurealm_search
 
 # 의존성 설치
-pip install -r requirements.txt
+uv sync
+
+# 환경변수 설정
+cp .env.example .env
+# .env 파일에 API 키 입력
 ```
 
-### 2. 환경 변수 설정
-
-`.env` 파일을 생성하고 Groq API 키를 입력하세요.
+### 환경변수
 
 ```bash
-# .env 파일 생성
-echo "GROQ_API_KEY=your_api_key_here" > .env
+VOYAGE_API_KEY=your_voyage_api_key
+GROQ_API_KEY=your_groq_api_key  # 태깅용 (선택)
 ```
 
-## 사용 방법
+## 사용법
 
-`main.py`를 통해 모든 기능을 실행할 수 있습니다.
-
-### 1. 캐릭터 데이터 수집 (Scrape)
+### 명령어
 
 ```bash
-# 전체 캐릭터 수집 (기본값)
-python main.py scrape
+# 웹 UI 실행
+python main.py ui --port 7860
 
-# 옵션 지정 예시
-# - 동시 요청 20개, 요청 간 0.1초 딜레이
-# - 테스트를 위해 100개만 수집 (-n 100)
-python main.py scrape --concurrent 20 --delay 0.1 -n 100
+# API 서버 실행
+python main.py serve --port 8000
+
+# CLI 검색
+python main.py search "검색어" --limit 10
+
+# 데이터 수집
+python main.py scrape              # 전체 캐릭터 수집
+python main.py update              # 신규 캐릭터만 추가
+python main.py full-update         # 전체 동기화 (변경사항 감지)
+
+# LLM 태깅
+python main.py tag                 # 수집된 캐릭터 태깅
+
+# 벡터 인덱싱
+python main.py index               # ChromaDB에 인덱싱
 ```
 
-수집된 데이터는 `data/` 디렉토리에 저장됩니다:
-- `data/characters.jsonl`: 최종 수집된 캐릭터 데이터 (JSONL 형식)
-- `data/types.json`: 캐릭터 타입 캐시
-- `data/progress.json`: 진행 상황 정보
-
-### 2. LLM 태깅 (Tag)
-
-수집된 `characters.jsonl` 데이터를 바탕으로 태깅을 수행합니다.
+### Docker 실행
 
 ```bash
-# 전체 태깅 실행
-python main.py tag
+# GitHub Container Registry에서 이미지 Pull
+docker pull ghcr.io/deveworld/risurealm_search:main
 
-# 옵션 지정 예시
-# - 3개의 스레드로 병렬 처리
-# - 50개만 태깅 (-n 50)
-python main.py tag --workers 3 -n 50
+# 실행
+docker run -d -p 7860:7860 -e VOYAGE_API_KEY="your-key" ghcr.io/deveworld/risurealm_search:main
 ```
 
-결과는 `data/tagged.jsonl`에 저장됩니다.
+또는 직접 빌드:
+
+```bash
+docker build -t risurealm-search .
+docker run -d -p 7860:7860 -e VOYAGE_API_KEY="your-key" risurealm-search
+```
 
 ## 프로젝트 구조
 
 ```
 risurealm_search/
-├── data/                  # 데이터 저장소 (자동 생성)
-├── scraper/               # 스크래퍼 모듈
-│   ├── client.py          # API 클라이언트
-│   ├── scraper.py         # 메인 로직
-│   └── ...
-├── tagger/                # 태거 모듈
-│   ├── client.py          # LLM 클라이언트 (Groq)
-│   ├── tagger.py          # 태깅 로직
-│   └── ...
-├── main.py                # 실행 진입점
-└── PLAN.md                # 기획서
+├── scraper/           # 데이터 수집 모듈
+│   ├── client.py      # RisuRealm API 클라이언트
+│   ├── scraper.py     # 스크래핑 로직
+│   └── models.py      # 데이터 모델
+├── tagger/            # LLM 태깅 모듈
+│   ├── client.py      # Groq API 클라이언트
+│   └── tagger.py      # 태깅 로직
+├── searcher/          # 검색 모듈
+│   ├── embedder.py    # Voyage AI 임베딩
+│   ├── indexer.py     # ChromaDB 인덱싱
+│   ├── searcher.py    # 검색 엔진
+│   └── models.py      # 검색 모델
+├── api/               # FastAPI 서버
+├── ui/                # Gradio UI
+├── data/              # 데이터 저장소
+│   ├── characters.jsonl
+│   ├── tagged.jsonl
+│   └── chroma_db/
+└── main.py            # CLI 진입점
+```
+
+## 필터 옵션
+
+| 필터 | 옵션 |
+|------|------|
+| 등급 | SFW, NSFW |
+| 성별 | Female, Male, Multiple, Other |
+| 언어 | Korean, English, Japanese, Multilingual, Chinese |
+| 장르 | Fantasy, Modern, Romance, Comedy, Dark_fantasy, School, Simulator, Game_original, Scifi, Horror, Historical, Anime_original, Isekai, Adventure |
+
+## API
+
+### 검색
+
+```
+GET /api/search?q=검색어&limit=10
+```
+
+### 캐릭터 상세
+
+```
+GET /api/character/{uuid}
 ```
 
 ## 라이선스
