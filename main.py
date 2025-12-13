@@ -19,6 +19,41 @@ def cmd_scrape(args):
     asyncio.run(scraper.run(count=args.count))
 
 
+def cmd_update(args):
+    """최신 캐릭터 업데이트 (스크래핑 + 태깅 + 인덱싱)"""
+    from scraper import RisuRealmScraper
+    from tagger import Tagger
+    from searcher import ChromaIndexer
+
+    # 1. 새 캐릭터 스크래핑
+    scraper = RisuRealmScraper(
+        data_dir=args.data_dir,
+        delay=args.delay,
+        max_concurrent=args.concurrent,
+    )
+    asyncio.run(scraper.update())
+
+    if args.scrape_only:
+        return
+
+    # 2. 새 캐릭터 태깅
+    print("\n=== 태깅 시작 ===")
+    tagger = Tagger(
+        data_dir=args.data_dir,
+        delay=0.5,
+        max_workers=3,
+    )
+    tagger.run(count=0)  # 태깅 안 된 것만
+
+    if args.no_index:
+        return
+
+    # 3. 인덱스 재구축
+    print("\n=== 인덱싱 시작 ===")
+    with ChromaIndexer(data_dir=args.data_dir) as indexer:
+        indexer.index_all(rebuild=True)
+
+
 def cmd_tag(args):
     """태깅 실행"""
     from tagger import Tagger
@@ -111,6 +146,31 @@ def main():
         help="요청 간 딜레이 (초)",
     )
 
+    # update 명령
+    update_parser = subparsers.add_parser("update", help="최신 캐릭터 업데이트")
+    update_parser.add_argument(
+        "--concurrent",
+        type=int,
+        default=10,
+        help="동시 요청 수",
+    )
+    update_parser.add_argument(
+        "--delay",
+        type=float,
+        default=0.2,
+        help="요청 간 딜레이 (초)",
+    )
+    update_parser.add_argument(
+        "--scrape-only",
+        action="store_true",
+        help="스크래핑만 실행 (태깅/인덱싱 생략)",
+    )
+    update_parser.add_argument(
+        "--no-index",
+        action="store_true",
+        help="인덱싱 생략",
+    )
+
     # tag 명령
     tag_parser = subparsers.add_parser("tag", help="LLM 태깅")
     tag_parser.add_argument(
@@ -194,6 +254,8 @@ def main():
 
     if args.command == "scrape":
         cmd_scrape(args)
+    elif args.command == "update":
+        cmd_update(args)
     elif args.command == "tag":
         cmd_tag(args)
     elif args.command == "index":

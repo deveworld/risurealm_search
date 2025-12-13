@@ -390,3 +390,118 @@ class RisuRealmScraper:
 
         if not self._shutdown_requested:
             print("\n=== 스크래핑 완료 ===")
+
+    def _load_existing_uuids(self) -> set[str]:
+        """기존 characters.jsonl에서 UUID 목록 로드"""
+        uuids = set()
+        if self.characters_path.exists():
+            for item in load_jsonl(self.characters_path):
+                uuids.add(item["uuid"])
+        return uuids
+
+    async def update(self):
+        """최신 캐릭터 업데이트"""
+        print("=== RisuRealm 업데이트 시작 ===")
+        print()
+
+        # 시그널 핸들러 설정
+        try:
+            self._setup_signal_handlers()
+        except NotImplementedError:
+            pass  # Windows
+
+        # 기존 UUID 로드
+        existing_uuids = self._load_existing_uuids()
+        print(f"기존 캐릭터: {len(existing_uuids)}개")
+
+        async with RisuRealmClient(
+            delay=self.delay,
+            max_concurrent=self.max_concurrent,
+        ) as client:
+            # 최신순으로 SFW/NSFW 조회
+            print("\n최신 SFW 캐릭터 조회 중...")
+            new_sfw = await client.fetch_latest_until_known(
+                nsfw=False,
+                known_uuids=existing_uuids,
+                on_progress=lambda p, n: print(f"  페이지 {p}, 새 캐릭터 {n}개"),
+            )
+            print(f"  새 SFW: {len(new_sfw)}개")
+
+            if self._shutdown_requested:
+                return
+
+            print("\n최신 NSFW 캐릭터 조회 중...")
+            new_nsfw = await client.fetch_latest_until_known(
+                nsfw=True,
+                known_uuids=existing_uuids,
+                on_progress=lambda p, n: print(f"  페이지 {p}, 새 캐릭터 {n}개"),
+            )
+            print(f"  새 NSFW: {len(new_nsfw)}개")
+
+            if self._shutdown_requested:
+                return
+
+            # 중복 제거 (SFW 우선)
+            all_new = {}
+            for item in new_nsfw:
+                all_new[item["id"]] = {"item": item, "nsfw": True, "type": "normal"}
+            for item in new_sfw:
+                all_new[item["id"]] = {"item": item, "nsfw": False, "type": "normal"}
+
+            if not all_new:
+                print("\n새로운 캐릭터가 없습니다.")
+                return
+
+            print(f"\n총 새 캐릭터: {len(all_new)}개")
+
+            # 타입 조회
+            types = await self._fetch_types_batch(client, all_new)
+            for uuid, char_type in types.items():
+                if uuid in all_new:
+                    all_new[uuid]["type"] = char_type
+
+            if self._shutdown_requested:
+                return
+
+            # 상세 정보 수집
+            print(f"\n상세 정보 수집 중...")
+            success_count = 0
+            fail_count = 0
+
+            for i, (uuid, item_data) in enumerate(all_new.items(), 1):
+                if self._shutdown_requested:
+                    break
+
+                result = await self._fetch_single(client, uuid, item_data)
+
+                if result is None:
+                    continue
+
+                name = result.list_item.get("name", "Unknown")
+
+                if result.detail_data:
+                    success_count += 1
+                    status = f"OK ({result.source})"
+                else:
+                    fail_count += 1
+                    status = "FAIL (list_only)"
+
+                print(f"[{i}/{len(all_new)}] {name[:35]:<35} {status}")
+
+                # 저장
+                character = ScrapedCharacter(
+                    uuid=result.uuid,
+                    nsfw=result.nsfw,
+                    list_data=CharacterListItem(**result.list_item),
+                    detail_data=CharacterDetail(**result.detail_data) if result.detail_data else None,
+                    detail_source=DetailSource(result.source),
+                    scraped_at=int(time.time()),
+                )
+                append_jsonl(character.model_dump(), self.characters_path)
+                self.progress.mark_detail_completed(result.uuid)
+
+        print("\n" + "=" * 60)
+        print("업데이트 완료!" if not self._shutdown_requested else "업데이트 중단됨")
+        print(f"  새 캐릭터: {len(all_new)}개")
+        print(f"  성공: {success_count}개")
+        print(f"  실패: {fail_count}개")

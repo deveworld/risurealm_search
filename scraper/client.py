@@ -42,9 +42,9 @@ class RisuRealmClient:
         if self._session:
             await self._session.close()
 
-    def _build_list_url(self, page: int, nsfw: bool) -> str:
+    def _build_list_url(self, page: int, nsfw: bool, sort: str = "downloads") -> str:
         """프록시 API URL 생성"""
-        query = f"search== __shared&&page=={page}&&nsfw=={str(nsfw).lower()}&&sort==downloads&&web==other"
+        query = f"search== __shared&&page=={page}&&nsfw=={str(nsfw).lower()}&&sort=={sort}&&web==web"
         return self.PROXY_BASE + quote(query, safe="")
 
     async def _request_with_retry(
@@ -89,13 +89,18 @@ class RisuRealmClient:
 
         return None
 
-    async def fetch_list_page(self, page: int, nsfw: bool) -> list[dict]:
+    async def fetch_list_page(self, page: int, nsfw: bool, sort: str = "downloads") -> list[dict]:
         """목록 페이지 조회"""
         async with self.semaphore:
-            url = self._build_list_url(page, nsfw)
+            url = self._build_list_url(page, nsfw, sort)
             result = await self._request_with_retry(url, "json")
             await asyncio.sleep(self.delay)
-            return result if result else []
+            if not result:
+                return []
+            # API가 {"cards": [...]} 또는 [...] 형태로 반환
+            if isinstance(result, dict) and "cards" in result:
+                return result["cards"]
+            return result if isinstance(result, list) else []
 
     async def fetch_all_list(
         self,
@@ -125,6 +130,40 @@ class RisuRealmClient:
             page += 1
 
         return all_items
+
+    async def fetch_latest_until_known(
+        self,
+        nsfw: bool,
+        known_uuids: set[str],
+        max_pages: int = 50,
+        on_progress: Optional[Callable[[int, int], None]] = None,
+    ) -> list[dict]:
+        """최신순으로 조회하다가 이미 알려진 UUID를 만나면 중단"""
+        new_items = []
+        page = 0
+
+        while page < max_pages:
+            items = await self.fetch_list_page(page, nsfw, sort="")
+
+            if not items:
+                break
+
+            found_known = False
+            for item in items:
+                if item["id"] in known_uuids:
+                    found_known = True
+                    break
+                new_items.append(item)
+
+            if on_progress:
+                on_progress(page, len(new_items))
+
+            if found_known:
+                break
+
+            page += 1
+
+        return new_items
 
     async def fetch_character_type(self, uuid: str) -> str:
         """캐릭터 페이지에서 타입 조회 (normal/charx)"""
