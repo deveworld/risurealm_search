@@ -99,6 +99,8 @@ def format_character_prompt(char: dict) -> str:
             parts.append(f"\n시나리오:\n{detail_data['scenario'][:500]}")
         if detail_data.get("first_mes"):
             parts.append(f"\n첫 메시지:\n{detail_data['first_mes'][:1500]}")
+        if detail_data.get("post_history_instructions"):
+            parts.append(f"\n시스템 지시:\n{detail_data['post_history_instructions'][:1000]}")
 
     return "\n".join(parts)
 

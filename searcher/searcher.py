@@ -23,28 +23,91 @@ def tokenize_query(query: str) -> list[str]:
 
 
 def calculate_keyword_boost(query_tokens: list[str], name: str, document: str) -> float:
-    """키워드 매칭 부스트 계산"""
+    """키워드 매칭 부스트 계산
+
+    이름/요약/설명 위치에 따라 다른 가중치 적용
+    """
     if not query_tokens:
         return 0.0
 
+    # 한/영 동의어 매핑
+    synonyms = {
+        "얀데레": ["yandere"],
+        "판타지": ["fantasy"],
+        "로맨스": ["romance"],
+        "학원": ["school", "academy"],
+        "고등학생": ["high school", "학생"],
+        "메이드": ["maid"],
+        "집사": ["butler"],
+        "뱀파이어": ["vampire"],
+        "엘프": ["elf"],
+        "악마": ["demon", "devil"],
+        "천사": ["angel"],
+        "마법사": ["mage", "wizard", "witch"],
+        "기사": ["knight"],
+        "공주": ["princess"],
+        "왕자": ["prince"],
+    }
+
+    # 문서에서 이름/요약/설명 분리
     name_lower = name.lower()
     doc_lower = document.lower()
 
-    name_matches = 0
-    doc_matches = 0
+    # 요약과 설명 추출
+    summary = ""
+    description = ""
+    for line in document.split("\n"):
+        if line.startswith("요약:"):
+            summary = line[3:].lower()
+        elif line.startswith("설명:"):
+            description = line[3:].lower()
+
+    # 매칭 확인 함수
+    def matches(text: str, tok: str) -> bool:
+        if tok in text:
+            return True
+        if tok in synonyms:
+            for syn in synonyms[tok]:
+                if syn in text:
+                    return True
+        return False
+
+    total_boost = 0.0
+    matched_tokens = 0  # 매칭된 토큰 수
 
     for token in query_tokens:
-        if token in name_lower:
-            name_matches += 1
-        if token in doc_lower:
-            doc_matches += 1
+        # 토큰별 가중치 계산
+        token_boost = 0.0
+        token_matched = False
 
-    # 이름 매칭은 더 높은 가중치
-    name_ratio = name_matches / len(query_tokens) if query_tokens else 0
-    doc_ratio = doc_matches / len(query_tokens) if query_tokens else 0
+        # 위치별 가중치 (중복 적용)
+        if matches(name_lower, token):
+            token_boost += 0.4   # 이름 매칭
+            token_matched = True
+        if matches(summary, token):
+            token_boost += 0.8   # 요약 매칭: 최고 가중치
+            token_matched = True
+        if matches(description, token):
+            token_boost += 0.3   # 설명 매칭
+            token_matched = True
+        elif matches(doc_lower, token):
+            token_boost += 0.5   # 기타 문서(태그 등)
+            token_matched = True
 
-    # 이름 매칭: 최대 30% 부스트, 문서 매칭: 최대 15% 부스트
-    return name_ratio * 0.3 + doc_ratio * 0.15
+        if token_matched:
+            matched_tokens += 1
+
+        total_boost += token_boost
+
+    # 토큰 수로 정규화
+    normalized_boost = total_boost / len(query_tokens)
+
+    # 키워드 커버리지 보정: 매칭된 키워드 비율에 따라 점수 조정
+    # 1/3 매칭 -> 0.33배, 2/3 매칭 -> 0.67배, 3/3 매칭 -> 1.0배
+    coverage_ratio = matched_tokens / len(query_tokens)
+    normalized_boost *= coverage_ratio
+
+    return normalized_boost
 
 
 def parse_download_count(download_str: str) -> int:
@@ -187,8 +250,10 @@ class CharacterSearcher:
                     name = metadata.get("name", "")
                     keyword_boost = calculate_keyword_boost(query_tokens, name, document)
 
-                    # 최종 점수: 유사도 * (1 + 다운로드 부스트 + 키워드 부스트)
-                    score = similarity * (1 + download_boost * 0.3 + keyword_boost)
+                    # 최종 점수 계산
+                    # 키워드 매칭을 주요 요소로, 유사도는 보조 요소로
+                    # score = 키워드부스트 + (유사도 * 가중치) + (다운로드 * 가중치)
+                    score = keyword_boost + similarity * 0.5 + download_boost * 0.05
 
                     items.append(self._metadata_to_result(metadata, document, score))
 

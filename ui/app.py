@@ -138,7 +138,7 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                 language_input = gr.CheckboxGroup(
                     label="언어",
                     choices=language_choices,
-                    value=[],  # 빈 값 = 전체
+                    value=["Korean", "Multilingual"],  # 기본: 한국어, 다국어
                 )
 
         results_output = gr.Markdown(label="검색 결과")

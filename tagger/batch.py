@@ -11,8 +11,8 @@ from .client import SYSTEM_PROMPT, FALLBACK_MODELS
 from .models import CharacterTags, TaggingResult, TaggedCharacter, ContentRating, CharacterGender, Language
 from .tagger import format_character_prompt, load_characters, count_characters
 
-# 배치용 모델 (안정적인 모델 선택)
-BATCH_MODEL = "llama-3.3-70b-versatile"
+# 배치용 모델 (gpt-oss-120b: 한국어 품질 우수)
+BATCH_MODEL = "openai/gpt-oss-120b"
 
 
 def parse_response(text: str) -> Optional[dict]:
