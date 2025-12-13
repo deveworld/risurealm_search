@@ -9,7 +9,6 @@ class SearchQuery(BaseModel):
 
     q: str = ""  # 자연어 검색어
     ratings: list[str] = []  # sfw, nsfw (여러 개 선택 가능)
-    genres: list[str] = []  # 장르 필터 (여러 개 선택 가능)
     genders: list[str] = []  # 캐릭터 성별 (여러 개 선택 가능)
     languages: list[str] = []  # 언어 (여러 개 선택 가능)
     limit: int = 20
@@ -26,12 +25,11 @@ class SearchResult(BaseModel):
     download: str
     url: str  # RisuRealm 링크
 
-    # LLM 태그
+    # 메타데이터
     content_rating: str
-    genres: list[str]
     character_gender: str
     language: str
-    summary: str
+    tags: list[str]  # 원본 태그
     source: Optional[str] = None
 
     # 검색 메타

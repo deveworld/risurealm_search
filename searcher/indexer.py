@@ -23,10 +23,6 @@ def format_document(char: dict) -> str:
         parts.append(f"요약: {llm_tags['summary']}")
     if llm_tags.get("description"):
         parts.append(f"설명: {llm_tags['description']}")
-    if llm_tags.get("genres"):
-        parts.append(f"장르: {', '.join(llm_tags['genres'])}")
-    if llm_tags.get("character_traits"):
-        parts.append(f"성격: {', '.join(llm_tags['character_traits'])}")
     if llm_tags.get("source"):
         parts.append(f"원작: {llm_tags['source']}")
 
@@ -55,7 +51,7 @@ def extract_metadata(char: dict) -> dict:
         "character_gender": llm_tags.get("character_gender", "other"),
         "language": llm_tags.get("language", "english"),
         "source": llm_tags.get("source") or "",
-        "genres": ",".join(llm_tags.get("genres", [])),
+        "tags": ",".join(char.get("tags", [])),  # 원본 태그 사용
         "haslore": char.get("haslore", False),
         "hasAsset": char.get("hasAsset", False),
     }

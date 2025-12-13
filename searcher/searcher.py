@@ -130,18 +130,11 @@ class CharacterSearcher:
         else:
             return {"$and": conditions}
 
-    def _filter_by_genres(self, items: list[SearchResult], genres: list[str]) -> list[SearchResult]:
-        """장르 필터링 (포스트 필터링)"""
-        if not genres:
-            return items
-        # 선택된 장르 중 하나라도 포함되어 있으면 통과
-        return [item for item in items if any(g in item.genres for g in genres)]
-
     def _metadata_to_result(self, metadata: dict, document: str, score: float) -> SearchResult:
         """메타데이터를 SearchResult로 변환"""
-        # genres는 쉼표로 구분된 문자열
-        genres = metadata.get("genres", "")
-        genres_list = [g.strip() for g in genres.split(",") if g.strip()]
+        # tags는 쉼표로 구분된 문자열
+        tags = metadata.get("tags", "")
+        tags_list = [t.strip() for t in tags.split(",") if t.strip()]
 
         return SearchResult(
             uuid=metadata["uuid"],
@@ -151,10 +144,9 @@ class CharacterSearcher:
             download=metadata.get("download", "0"),
             url=f"{self.REALM_URL}/{metadata['uuid']}",
             content_rating=metadata.get("content_rating", "unknown"),
-            genres=genres_list,
             character_gender=metadata.get("character_gender", "other"),
             language=metadata.get("language", "english"),
-            summary="",  # document에서 추출 가능
+            tags=tags_list,
             source=metadata.get("source") or None,
             score=score,
         )
@@ -162,10 +154,7 @@ class CharacterSearcher:
     def search(self, query: SearchQuery) -> SearchResponse:
         """검색 실행"""
         where_filter = self._build_where_filter(query)
-
-        # 장르 필터가 있으면 더 많은 결과를 가져와서 포스트 필터링
-        fetch_multiplier = 5 if query.genres else 1
-        fetch_limit = (query.limit + query.offset) * fetch_multiplier
+        fetch_limit = query.limit + query.offset
 
         # 검색어가 있으면 벡터 검색
         if query.q:
@@ -203,9 +192,6 @@ class CharacterSearcher:
 
                     items.append(self._metadata_to_result(metadata, document, score))
 
-            # 장르 포스트 필터링
-            items = self._filter_by_genres(items, query.genres)
-
             # 점수순 재정렬 (download 가중치 반영)
             items.sort(key=lambda x: x.score, reverse=True)
 
@@ -227,8 +213,6 @@ class CharacterSearcher:
                     document = results["documents"][i] if results["documents"] else ""
                     items.append(self._metadata_to_result(metadata, document, 0.0))
 
-            # 장르 포스트 필터링
-            items = self._filter_by_genres(items, query.genres)
             items = items[query.offset : query.offset + query.limit]
 
         return SearchResponse(

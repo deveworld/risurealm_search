@@ -56,7 +56,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         # 결과 포맷팅
         results = []
         for i, r in enumerate(response.results, 1):
-            genres_str = ", ".join(r.genres[:3]) if r.genres else "없음"
+            tags_str = ", ".join(r.tags[:5]) if r.tags else "없음"
 
             # desc에서 요약과 설명 추출
             summary = ""
@@ -73,7 +73,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
             result = f"""### [{i}] {r.name or '(이름 없음)'}
 **제작자**: {r.authorname or '알 수 없음'} | **등급**: {r.content_rating.upper()} | **성별**: {r.character_gender} | **유사도**: {r.score:.1%}
 
-**장르**: {genres_str} | **언어**: {r.language}
+**태그**: {tags_str} | **언어**: {r.language}
 
 **요약**: {summary or '없음'}
 

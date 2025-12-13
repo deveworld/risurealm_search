@@ -27,12 +27,10 @@ SYSTEM_PROMPT = """다음 AI 캐릭터 정보를 분석하여 메타데이터를
 
 추출할 항목:
 - content_rating: "sfw" | "nsfw" | "unknown" (성적 콘텐츠 포함 여부)
-- setting: 시대/배경 설정 (modern, medieval, futuristic, contemporary, fantasy_world 등)
 - character_gender: 봇의 주요 캐릭터 성별 (female, male, multiple, other, unknown 중 선택)
   - 중요: 유저가 맡는 역할이 아닌, 봇이 연기하는 NPC/AI 캐릭터의 성별을 기준으로 판단
   - 시뮬레이터/RPG 봇의 경우 유저가 상호작용하는 주요 NPC들의 성별 기준
   - 여러 캐릭터가 등장하면 "multiple", 주로 여캐면 "female", 주로 남캐면 "male"
-- character_traits: 성격 특성 목록 (yandere, tsundere, kuudere, dandere, mesu_gaki 등)
 - source: 원작이 있다면 원작명 (genshin_impact, arknights 등), OC면 null
 - language: 봇이 롤플레이 시 사용하는 주 언어 (korean, english, japanese, multilingual, other 중 선택)
   - 설명(description)이 아닌 실제 대화/시나리오/first_message 언어 기준
@@ -190,9 +188,7 @@ class LLMClient:
                 # 성공
                 tags = CharacterTags(
                     content_rating=parsed.get("content_rating", "unknown"),
-                    setting=parsed.get("setting", ""),
                     character_gender=parsed.get("character_gender", "other"),
-                    character_traits=parsed.get("character_traits", []),
                     source=parsed.get("source"),
                     language=parsed.get("language", "english"),
                     summary=parsed.get("summary", ""),

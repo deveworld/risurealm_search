@@ -31,9 +31,7 @@ class CharacterTags(BaseModel):
     """LLM이 추출한 캐릭터 태그"""
 
     content_rating: ContentRating = ContentRating.UNKNOWN
-    setting: str = ""  # modern, medieval, futuristic 등
     character_gender: CharacterGender = CharacterGender.OTHER
-    character_traits: list[str] = []  # yandere, tsundere 등
     source: Optional[str] = None  # 원작명 (OC면 null)
     language: Language = Language.ENGLISH
     summary: str = ""  # 한 줄 요약 (한국어)
