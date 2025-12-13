@@ -148,17 +148,17 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                 gender_input = gr.CheckboxGroup(
                     label="성별",
                     choices=gender_choices,
-                    value=gender_choices,
+                    value=[],  # 빈 값 = 전체
                 )
                 language_input = gr.CheckboxGroup(
                     label="언어",
                     choices=language_choices,
-                    value=language_choices,
+                    value=[],  # 빈 값 = 전체
                 )
             genre_input = gr.CheckboxGroup(
                 label="장르",
                 choices=genre_choices,
-                value=genre_choices,
+                value=[],  # 빈 값 = 전체
             )
 
         results_output = gr.Markdown(label="검색 결과")
