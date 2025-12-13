@@ -6418,12 +6418,18 @@
     "13caad9ddb4a0d6a694ef5eb611ccbad823103acace47b0f6ee32e31b5308606",
     "5e7d5019160a29eb8729497d55ebd192c9307aaa91f792edba78a5de06aaee0c",
     "ebb3d501170d4669d28d50fac1641bbe1ba3aacf6a52ae9de71f44c0946f3dc3",
-    "538ec0d6994469baaf2eba531a618a4c1a4cad551b7be0822e8554eb771e156c"
+    "538ec0d6994469baaf2eba531a618a4c1a4cad551b7be0822e8554eb771e156c",
+    "1d17f1c1-6e5e-4ce2-b0a0-557095e05a4e",
+    "e46ee71e-5960-4f02-8947-3798f5b0f06a",
+    "fd2addc5-4cd2-4a32-9acc-baae63659328",
+    "51f9a4ee-9191-420a-8a23-ff04223a6c60",
+    "1586fab2-6f08-4d63-8118-0ea0e396cbb1",
+    "185c239b-4054-4d0b-9045-7016e2417b55"
   ],
   "failed_uuids": [],
   "model_stats": {
     "openai/gpt-oss-120b": {
-      "success": 3707,
+      "success": 3713,
       "fail": 0
     },
     "meta-llama/llama-4-maverick-17b-128e-instruct": {

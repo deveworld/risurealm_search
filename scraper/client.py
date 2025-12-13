@@ -106,28 +106,38 @@ class RisuRealmClient:
         self,
         nsfw: bool,
         on_progress: Optional[Callable[[int, int], None]] = None,
+        page_workers: int = 5,
     ) -> list[dict]:
-        """전체 목록 조회 (빈 페이지까지)"""
+        """전체 목록 조회 (병렬 페이지 요청)"""
         all_items = []
         page = 0
-        empty_count = 0
+        empty_streak = 0
+        max_empty_streak = 3
 
-        while True:
-            items = await self.fetch_list_page(page, nsfw)
+        while empty_streak < max_empty_streak:
+            # 여러 페이지 동시 요청
+            pages_to_fetch = list(range(page, page + page_workers))
+            tasks = [self.fetch_list_page(p, nsfw) for p in pages_to_fetch]
+            results = await asyncio.gather(*tasks)
 
-            if not items:
-                empty_count += 1
-                if empty_count >= 3:
-                    break
-                page += 1
-                continue
+            batch_empty = 0
+            for p, items in zip(pages_to_fetch, results):
+                if items:
+                    all_items.extend(items)
+                    empty_streak = 0
+                else:
+                    batch_empty += 1
 
-            empty_count = 0
-            all_items.extend(items)
+            # 모든 페이지가 비어있으면 종료
+            if batch_empty == len(pages_to_fetch):
+                empty_streak += batch_empty
+            else:
+                empty_streak = 0
 
             if on_progress:
-                on_progress(page, len(all_items))
-            page += 1
+                on_progress(page + page_workers - 1, len(all_items))
+
+            page += page_workers
 
         return all_items
 

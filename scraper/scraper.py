@@ -399,6 +399,14 @@ class RisuRealmScraper:
                 uuids.add(item["uuid"])
         return uuids
 
+    def _load_existing_characters(self) -> dict[str, dict]:
+        """기존 characters.jsonl에서 UUID -> 캐릭터 데이터 매핑"""
+        characters = {}
+        if self.characters_path.exists():
+            for item in load_jsonl(self.characters_path):
+                characters[item["uuid"]] = item
+        return characters
+
     async def update(self):
         """최신 캐릭터 업데이트"""
         print("=== RisuRealm 업데이트 시작 ===")
@@ -505,3 +513,169 @@ class RisuRealmScraper:
         print(f"  새 캐릭터: {len(all_new)}개")
         print(f"  성공: {success_count}개")
         print(f"  실패: {fail_count}개")
+
+    async def full_update(self) -> list[str]:
+        """전체 목록 확인 후 변경된 캐릭터만 재수집
+
+        Returns:
+            변경된 캐릭터 UUID 목록
+        """
+        print("=== RisuRealm 전체 업데이트 시작 ===")
+        print()
+
+        # 시그널 핸들러 설정
+        try:
+            self._setup_signal_handlers()
+        except NotImplementedError:
+            pass  # Windows
+
+        # 기존 캐릭터 로드
+        existing_chars = self._load_existing_characters()
+        print(f"기존 캐릭터: {len(existing_chars)}개")
+
+        # 기존 date 매핑
+        existing_dates = {
+            uuid: char.get("list_data", {}).get("date", 0)
+            for uuid, char in existing_chars.items()
+        }
+
+        async with RisuRealmClient(
+            delay=self.delay,
+            max_concurrent=self.max_concurrent,
+        ) as client:
+            # 전체 목록 재조회
+            print("\nSFW 전체 목록 조회 중...")
+            sfw_items = await client.fetch_all_list(
+                nsfw=False,
+                on_progress=lambda p, n: print(f"  페이지 {p}, 총 {n}개"),
+            )
+
+            if self._shutdown_requested:
+                return []
+
+            print("\nNSFW 전체 목록 조회 중...")
+            nsfw_items = await client.fetch_all_list(
+                nsfw=True,
+                on_progress=lambda p, n: print(f"  페이지 {p}, 총 {n}개"),
+            )
+
+            if self._shutdown_requested:
+                return []
+
+            # 중복 제거 (SFW 우선)
+            all_items = {}
+            for item in nsfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": True, "type": "normal"}
+            for item in sfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": False, "type": "normal"}
+
+            print(f"\n전체 캐릭터: {len(all_items)}개")
+
+            # 변경 감지: 새 캐릭터 또는 date가 변경된 캐릭터
+            changed_uuids = []
+            new_count = 0
+            updated_count = 0
+
+            for uuid, item_data in all_items.items():
+                item = item_data["item"]
+                new_date = item.get("date", 0)
+
+                if uuid not in existing_dates:
+                    changed_uuids.append(uuid)
+                    new_count += 1
+                elif new_date != existing_dates[uuid]:
+                    changed_uuids.append(uuid)
+                    updated_count += 1
+
+            print(f"변경 감지: 신규 {new_count}개, 수정 {updated_count}개")
+
+            # 타입 조회 (변경된 것만)
+            success_count = 0
+            fail_count = 0
+            updated_chars = []
+
+            if changed_uuids:
+                changed_items = {uuid: all_items[uuid] for uuid in changed_uuids}
+                types = await self._fetch_types_batch(client, changed_items)
+                for uuid, char_type in types.items():
+                    if uuid in changed_items:
+                        changed_items[uuid]["type"] = char_type
+
+                if self._shutdown_requested:
+                    return []
+
+                # 상세 정보 수집
+                print(f"\n상세 정보 수집 중... ({len(changed_uuids)}개)")
+
+                for i, uuid in enumerate(changed_uuids, 1):
+                    if self._shutdown_requested:
+                        break
+
+                    item_data = changed_items[uuid]
+                    result = await self._fetch_single(client, uuid, item_data)
+
+                    if result is None:
+                        continue
+
+                    name = result.list_item.get("name", "Unknown")
+
+                    if result.detail_data:
+                        success_count += 1
+                        status = f"OK ({result.source})"
+                    else:
+                        fail_count += 1
+                        status = "FAIL (list_only)"
+
+                    print(f"[{i}/{len(changed_uuids)}] {name[:35]:<35} {status}")
+
+                    # 캐릭터 데이터 생성
+                    character = ScrapedCharacter(
+                        uuid=result.uuid,
+                        nsfw=result.nsfw,
+                        list_data=CharacterListItem(**result.list_item),
+                        detail_data=CharacterDetail(**result.detail_data) if result.detail_data else None,
+                        detail_source=DetailSource(result.source),
+                        scraped_at=int(time.time()),
+                    )
+                    updated_chars.append(character.model_dump())
+
+        if self._shutdown_requested:
+            return []
+
+        # characters.jsonl 업데이트
+        print("\ncharacters.jsonl 업데이트 중...")
+        updated_uuids = {char["uuid"] for char in updated_chars}
+
+        # 모든 캐릭터의 list_data 업데이트 (download 등 메타데이터 반영)
+        final_chars = []
+        metadata_updated = 0
+
+        for uuid, char in existing_chars.items():
+            if uuid in updated_uuids:
+                # 상세 정보가 재수집된 캐릭터는 건너뜀 (나중에 추가)
+                continue
+            elif uuid in all_items:
+                # list_data만 업데이트 (download 등 메타데이터)
+                new_list_data = all_items[uuid]["item"]
+                char["list_data"] = new_list_data
+                char["nsfw"] = all_items[uuid]["nsfw"]
+                metadata_updated += 1
+            final_chars.append(char)
+
+        # 새/변경된 캐릭터 추가
+        final_chars.extend(updated_chars)
+
+        # 파일 저장
+        save_jsonl(final_chars, self.characters_path)
+        print(f"  저장 완료: {len(final_chars)}개")
+        print(f"  메타데이터 업데이트: {metadata_updated}개")
+
+        print("\n" + "=" * 60)
+        print("전체 업데이트 완료!" if not self._shutdown_requested else "전체 업데이트 중단됨")
+        print(f"  신규: {new_count}개")
+        print(f"  내용 수정: {updated_count}개")
+        print(f"  메타데이터 업데이트: {metadata_updated}개")
+        print(f"  성공: {success_count}개")
+        print(f"  실패: {fail_count}개")
+
+        return changed_uuids
