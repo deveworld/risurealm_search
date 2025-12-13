@@ -99,7 +99,7 @@ class CharacterSearcher:
             uuid=metadata["uuid"],
             name=metadata["name"],
             authorname=metadata.get("authorname", ""),
-            desc=document[:300] if document else "",
+            desc=document or "",
             download=metadata.get("download", "0"),
             url=f"{self.REALM_URL}/{metadata['uuid']}",
             content_rating=metadata.get("content_rating", "unknown"),
