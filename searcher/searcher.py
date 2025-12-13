@@ -1,5 +1,6 @@
 """캐릭터 검색"""
 
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +9,24 @@ from chromadb.config import Settings
 
 from .embedder import VoyageEmbedder
 from .models import SearchQuery, SearchResult, SearchResponse
+
+
+def parse_download_count(download_str: str) -> int:
+    """다운로드 문자열을 숫자로 변환 (예: '623.9k' -> 623900)"""
+    if not download_str:
+        return 0
+
+    download_str = download_str.strip().lower()
+
+    try:
+        if download_str.endswith('k'):
+            return int(float(download_str[:-1]) * 1000)
+        elif download_str.endswith('m'):
+            return int(float(download_str[:-1]) * 1000000)
+        else:
+            return int(float(download_str))
+    except (ValueError, TypeError):
+        return 0
 
 
 class CharacterSearcher:
@@ -116,9 +135,17 @@ class CharacterSearcher:
                     distance = results["distances"][0][i] if results["distances"] else 0
 
                     # cosine distance -> similarity score
-                    score = 1 - distance
+                    similarity = 1 - distance
+
+                    # download 가중치 적용
+                    downloads = parse_download_count(metadata.get("download", "0"))
+                    download_boost = math.log10(downloads + 10) / 10  # 0.1 ~ 0.7 범위
+                    score = similarity * (1 + download_boost * 0.3)  # 최대 21% 부스트
 
                     items.append(self._metadata_to_result(metadata, document, score))
+
+            # 점수순 재정렬 (download 가중치 반영)
+            items.sort(key=lambda x: x.score, reverse=True)
 
             # offset 적용
             items = items[query.offset:]

@@ -40,14 +40,27 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         results = []
         for i, r in enumerate(response.results, 1):
             genres = ", ".join(r.genres[:3]) if r.genres else "없음"
-            desc = r.desc[:200] + "..." if len(r.desc) > 200 else r.desc
+
+            # desc에서 요약과 설명 추출
+            summary = ""
+            description = ""
+            if r.desc:
+                lines = r.desc.split("\n")
+                for line in lines:
+                    if line.startswith("요약:"):
+                        summary = line[3:].strip()
+                    elif line.startswith("설명:"):
+                        description = line[3:].strip()
+
 
             result = f"""### [{i}] {r.name or '(이름 없음)'}
 **제작자**: {r.authorname or '알 수 없음'} | **등급**: {r.content_rating.upper()} | **유사도**: {r.score:.1%}
 
 **장르**: {genres}
 
-{desc}
+**요약**: {summary or '없음'}
+
+**설명**: {description or '없음'}
 
 [캐릭터 페이지 열기]({r.url})
 
