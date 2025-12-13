@@ -68,8 +68,16 @@ python main.py scrape              # 전체 캐릭터 수집
 python main.py update              # 신규 캐릭터만 추가
 python main.py full-update         # 전체 동기화 (변경사항 감지)
 
-# LLM 태깅
+# LLM 태깅 (실시간)
 python main.py tag                 # 수집된 캐릭터 태깅
+
+# LLM 태깅 (배치 - Groq Batch API)
+python main.py batch-tag run --all # 전체 재태깅 (자동)
+python main.py batch-tag prepare   # 배치 파일 준비만
+python main.py batch-tag start     # 배치 작업 시작
+python main.py batch-tag status    # 상태 확인
+python main.py batch-tag download  # 결과 다운로드
+python main.py batch-tag process   # 결과 처리
 
 # 벡터 인덱싱
 python main.py index               # ChromaDB에 인덱싱

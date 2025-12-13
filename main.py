@@ -146,6 +146,45 @@ def cmd_tag(args):
     tagger.run(count=args.count)
 
 
+def cmd_batch_tag(args):
+    """배치 태깅 실행"""
+    from tagger import BatchTagger
+
+    tagger = BatchTagger(data_dir=args.data_dir, model=args.model)
+
+    if args.action == "prepare":
+        tagger.prepare_batch(limit=args.limit, skip_existing=not args.all)
+
+    elif args.action == "start":
+        if args.limit > 0 or args.all:
+            tagger.prepare_batch(limit=args.limit, skip_existing=not args.all)
+        tagger.upload_and_create_batch(completion_window=args.window)
+
+    elif args.action == "status":
+        status = tagger.check_status(args.batch_id)
+        print(f"상태: {status['status']}")
+        print(f"요청: {status['request_counts']['completed']}/{status['request_counts']['total']} 완료")
+        if status['request_counts']['failed'] > 0:
+            print(f"실패: {status['request_counts']['failed']}")
+
+    elif args.action == "wait":
+        tagger.wait_for_completion(args.batch_id, poll_interval=args.interval)
+
+    elif args.action == "download":
+        tagger.download_results()
+
+    elif args.action == "process":
+        tagger.process_results()
+
+    elif args.action == "run":
+        tagger.run_full_batch(
+            limit=args.limit,
+            skip_existing=not args.all,
+            completion_window=args.window,
+            poll_interval=args.interval,
+        )
+
+
 def cmd_index(args):
     """인덱싱 실행"""
     from searcher import ChromaIndexer
@@ -159,9 +198,10 @@ def cmd_search(args):
     from searcher import CharacterSearcher, SearchQuery
 
     with CharacterSearcher(data_dir=args.data_dir) as searcher:
+        ratings = [args.rating] if args.rating and args.rating != "all" else []
         query = SearchQuery(
             q=args.query,
-            rating=args.rating,
+            ratings=ratings,
             limit=args.limit,
         )
         response = searcher.search(query)
@@ -170,8 +210,7 @@ def cmd_search(args):
         for i, result in enumerate(response.results, 1):
             print(f"[{i}] {result.name}")
             print(f"    제작자: {result.authorname}")
-            print(f"    등급: {result.content_rating}, 장르: {', '.join(result.genres[:3])}")
-            print(f"    요약: {result.summary or result.desc[:100]}")
+            print(f"    등급: {result.content_rating}, 태그: {', '.join(result.tags[:3])}")
             print(f"    점수: {result.score:.3f}")
             print(f"    링크: {result.url}")
             print()
@@ -277,7 +316,7 @@ def main():
     )
 
     # tag 명령
-    tag_parser = subparsers.add_parser("tag", help="LLM 태깅")
+    tag_parser = subparsers.add_parser("tag", help="LLM 태깅 (실시간)")
     tag_parser.add_argument(
         "-n", "--count",
         type=int,
@@ -295,6 +334,49 @@ def main():
         type=float,
         default=0.5,
         help="요청 간 딜레이 (초)",
+    )
+
+    # batch-tag 명령
+    batch_parser = subparsers.add_parser("batch-tag", help="Groq Batch API로 대량 태깅")
+    batch_parser.add_argument(
+        "action",
+        choices=["prepare", "start", "status", "wait", "download", "process", "run"],
+        help="실행할 작업 (run=전체 자동 실행)",
+    )
+    batch_parser.add_argument(
+        "-n", "--limit",
+        type=int,
+        default=0,
+        help="처리할 최대 캐릭터 수 (0=전체)",
+    )
+    batch_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="기존 태깅된 캐릭터도 재태깅",
+    )
+    batch_parser.add_argument(
+        "--model",
+        type=str,
+        default="llama-3.3-70b-versatile",
+        help="사용할 모델",
+    )
+    batch_parser.add_argument(
+        "--window",
+        type=str,
+        default="24h",
+        help="완료 기한 (예: 24h)",
+    )
+    batch_parser.add_argument(
+        "--interval",
+        type=int,
+        default=60,
+        help="상태 확인 간격 (초)",
+    )
+    batch_parser.add_argument(
+        "--batch-id",
+        type=str,
+        default=None,
+        help="배치 ID (status/wait 시 사용)",
     )
 
     # index 명령
@@ -365,6 +447,8 @@ def main():
         cmd_full_update(args)
     elif args.command == "tag":
         cmd_tag(args)
+    elif args.command == "batch-tag":
+        cmd_batch_tag(args)
     elif args.command == "index":
         cmd_index(args)
     elif args.command == "search":
