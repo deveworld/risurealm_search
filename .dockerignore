@@ -1,0 +1,16 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.env
+*.md
+data/characters.jsonl
+data/tagged.jsonl
+data/tagging_progress.json
+scraper/
+tagger/
+api/
+test_*.py
+uv.lock
+.python-version
