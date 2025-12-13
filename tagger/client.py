@@ -9,7 +9,7 @@ from threading import Lock
 
 from groq import Groq, RateLimitError, APIError, APIConnectionError
 
-from .models import CharacterTags, TaggingResult
+from .models import CharacterTags, TaggingResult, ContentRating, CharacterGender, Language
 
 # 폴백 순서 (평가 결과 기반)
 FALLBACK_MODELS = [
@@ -31,7 +31,7 @@ SYSTEM_PROMPT = """다음 AI 캐릭터 정보를 분석하여 메타데이터를
   - 중요: 유저가 맡는 역할이 아닌, 봇이 연기하는 NPC/AI 캐릭터의 성별을 기준으로 판단
   - 시뮬레이터/RPG 봇의 경우 유저가 상호작용하는 주요 NPC들의 성별 기준
   - 여러 캐릭터가 등장하면 "multiple", 주로 여캐면 "female", 주로 남캐면 "male"
-- source: 원작이 있다면 원작명 (genshin_impact, arknights 등), OC면 null
+- source: 원작이 있다면 원작명 리스트 (예: ["genshin_impact"], ["arknights", "blue_archive"]), OC면 빈 배열 []
 - language: 봇이 롤플레이 시 사용하는 주 언어 (korean, english, japanese, multilingual, other 중 선택)
   - 설명(description)이 아닌 실제 대화/시나리오/first_message 언어 기준
   - korean/english/japanese 외 단일 언어는 "other" 선택
@@ -185,12 +185,38 @@ class LLMClient:
             parsed, raw_response, error = self._call_model_with_retry(model, prompt)
 
             if parsed:
-                # 성공
+                # 성공 - enum 값 안전하게 변환
+                try:
+                    content_rating = ContentRating(parsed.get("content_rating", "unknown"))
+                except ValueError:
+                    content_rating = ContentRating.UNKNOWN
+
+                try:
+                    character_gender = CharacterGender(parsed.get("character_gender", "other"))
+                except ValueError:
+                    character_gender = CharacterGender.OTHER
+
+                try:
+                    language = Language(parsed.get("language", "english"))
+                except ValueError:
+                    language = Language.OTHER
+
+                # source 처리: 문자열, 리스트, null 모두 지원
+                raw_source = parsed.get("source")
+                if raw_source is None:
+                    source = []
+                elif isinstance(raw_source, str):
+                    source = [raw_source] if raw_source else []
+                elif isinstance(raw_source, list):
+                    source = [s for s in raw_source if isinstance(s, str) and s]
+                else:
+                    source = []
+
                 tags = CharacterTags(
-                    content_rating=parsed.get("content_rating", "unknown"),
-                    character_gender=parsed.get("character_gender", "other"),
-                    source=parsed.get("source"),
-                    language=parsed.get("language", "english"),
+                    content_rating=content_rating,
+                    character_gender=character_gender,
+                    source=source,
+                    language=language,
                     summary=parsed.get("summary", ""),
                     description=parsed.get("description", ""),
                 )

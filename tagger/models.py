@@ -32,7 +32,7 @@ class CharacterTags(BaseModel):
 
     content_rating: ContentRating = ContentRating.UNKNOWN
     character_gender: CharacterGender = CharacterGender.OTHER
-    source: Optional[str] = None  # 원작명 (OC면 null)
+    source: list[str] = []  # 원작명 목록 (OC면 빈 리스트)
     language: Language = Language.ENGLISH
     summary: str = ""  # 한 줄 요약 (한국어)
     description: str = ""  # 상세 설명 (한국어, 100-500자)

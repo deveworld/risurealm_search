@@ -48,10 +48,10 @@ def cmd_update(args):
     if args.no_index:
         return
 
-    # 3. 인덱스 재구축
+    # 3. 증분 인덱싱 (새 캐릭터만)
     print("\n=== 인덱싱 시작 ===")
     with ChromaIndexer(data_dir=args.data_dir) as indexer:
-        indexer.index_all(rebuild=True)
+        indexer.index_all(rebuild=False)
 
 
 def cmd_full_update(args):
@@ -81,7 +81,6 @@ def cmd_full_update(args):
 
     # tagged.jsonl에서 변경된 UUID 제거
     tagged_path = args.data_dir / "tagged.jsonl"
-    tagging_progress_path = args.data_dir / "tagging_progress.json"
 
     if tagged_path.exists():
         print(f"tagged.jsonl에서 {len(changed_uuids)}개 항목 제거 중...")
@@ -103,20 +102,6 @@ def cmd_full_update(args):
 
         print(f"  유지: {len(kept_items)}개")
 
-    # tagging_progress.json에서도 제거
-    if tagging_progress_path.exists():
-        with open(tagging_progress_path, "r", encoding="utf-8") as f:
-            progress = json.load(f)
-
-        changed_set = set(changed_uuids)
-        progress["completed_uuids"] = [
-            uuid for uuid in progress.get("completed_uuids", [])
-            if uuid not in changed_set
-        ]
-
-        with open(tagging_progress_path, "w", encoding="utf-8") as f:
-            json.dump(progress, f, ensure_ascii=False, indent=2)
-
     # 태깅 실행
     tagger = Tagger(
         data_dir=args.data_dir,
@@ -128,10 +113,10 @@ def cmd_full_update(args):
     if args.no_index:
         return
 
-    # 3. 인덱스 재구축
+    # 3. 변경된 캐릭터만 인덱스 업데이트
     print("\n=== 인덱싱 시작 ===")
     with ChromaIndexer(data_dir=args.data_dir) as indexer:
-        indexer.index_all(rebuild=True)
+        indexer.upsert_by_uuids(changed_uuids)
 
 
 def cmd_tag(args):
@@ -174,7 +159,7 @@ def cmd_batch_tag(args):
         tagger.download_results()
 
     elif args.action == "process":
-        tagger.process_results()
+        tagger.process_results(replace_existing=args.all)
 
     elif args.action == "run":
         tagger.run_full_batch(

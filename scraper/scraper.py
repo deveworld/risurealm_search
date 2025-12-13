@@ -42,9 +42,8 @@ class RisuRealmScraper:
         self.list_nsfw_path = data_dir / "list_nsfw.jsonl"
         self.types_path = data_dir / "types.json"
         self.characters_path = data_dir / "characters.jsonl"
-        self.progress_path = data_dir / "progress.json"
 
-        self.progress = Progress(self.progress_path)
+        self.progress = Progress(data_dir)
 
         # Graceful shutdown
         self._shutdown_requested = False
@@ -103,7 +102,7 @@ class RisuRealmScraper:
 
     async def scrape_list(self) -> dict[str, dict]:
         """SFW/NSFW 전체 목록 수집 + 타입 조회"""
-        if self.progress.data["list_completed"]:
+        if self.progress.is_list_completed():
             print("목록 수집 이미 완료됨, 기존 데이터 로드")
             sfw_items = load_jsonl(self.list_sfw_path)
             nsfw_items = load_jsonl(self.list_nsfw_path)
@@ -198,9 +197,6 @@ class RisuRealmScraper:
                 save_jsonl(nsfw_items, self.list_nsfw_path)
                 print(f"  NSFW 완료: {len(nsfw_items)}개")
 
-            if not self._shutdown_requested:
-                self.progress.mark_list_completed()
-
             # UUID 기준 중복 제거, SFW 우선 (양쪽에 있으면 nsfw=False)
             all_items = {}
             for item in nsfw_items:
@@ -269,10 +265,9 @@ class RisuRealmScraper:
             pending_uuids = pending_uuids[:count]
 
         total = len(pending_uuids)
-        completed = len(self.progress.data["detail_completed_uuids"])
-        failed = len(self.progress.data["detail_failed_uuids"])
+        completed = self.progress.get_completed_count()
 
-        print(f"상세 정보 수집: {total}개 대기, {completed}개 완료, {failed}개 실패")
+        print(f"상세 정보 수집: {total}개 대기, {completed}개 완료")
         print(f"동시 처리: {self.max_concurrent}개")
 
         if not pending_uuids:
@@ -362,7 +357,7 @@ class RisuRealmScraper:
         print(f"  성공: {success_count}개")
         print(f"  실패: {fail_count}개")
         print(f"  속도: {processed/elapsed_total:.1f}개/초" if elapsed_total > 0 else "")
-        print(f"  총 완료: {len(self.progress.data['detail_completed_uuids'])}개")
+        print(f"  총 완료: {self.progress.get_completed_count()}개")
 
         if self._shutdown_requested:
             print("\n💡 재개하려면 같은 명령을 다시 실행하세요.")

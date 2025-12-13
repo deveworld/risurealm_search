@@ -8,7 +8,7 @@ from typing import Optional
 from groq import Groq
 
 from .client import SYSTEM_PROMPT, FALLBACK_MODELS
-from .models import CharacterTags, TaggingResult, TaggedCharacter
+from .models import CharacterTags, TaggingResult, TaggedCharacter, ContentRating, CharacterGender, Language
 from .tagger import format_character_prompt, load_characters, count_characters
 
 # 배치용 모델 (안정적인 모델 선택)
@@ -271,14 +271,24 @@ class BatchTagger:
         print(f"다운로드 완료: {count}개 결과")
         return count
 
-    def process_results(self) -> dict:
+    def process_results(self, replace_existing: bool = False) -> dict:
         """배치 결과를 tagged.jsonl로 변환
+
+        Args:
+            replace_existing: True면 기존 데이터 삭제 후 새로 생성
 
         Returns:
             처리 통계
         """
         if not self.batch_output_file.exists():
             raise FileNotFoundError("배치 출력 파일이 없습니다.")
+
+        # --all 옵션일 때 기존 파일 비우기
+        if replace_existing:
+            print("기존 태깅 데이터 초기화 중...")
+            if self.tagged_file.exists():
+                self.tagged_file.unlink()
+                print(f"  삭제: {self.tagged_file}")
 
         # 캐릭터 데이터 로드 (UUID -> 캐릭터 매핑)
         char_map = {}
@@ -329,11 +339,38 @@ class BatchTagger:
                 parsed = parse_response(content)
 
                 if parsed:
+                    # enum 값 안전하게 변환 (유효하지 않은 값은 기본값 사용)
+                    try:
+                        content_rating = ContentRating(parsed.get("content_rating", "unknown"))
+                    except ValueError:
+                        content_rating = ContentRating.UNKNOWN
+
+                    try:
+                        character_gender = CharacterGender(parsed.get("character_gender", "other"))
+                    except ValueError:
+                        character_gender = CharacterGender.OTHER
+
+                    try:
+                        language = Language(parsed.get("language", "english"))
+                    except ValueError:
+                        language = Language.OTHER
+
+                    # source 처리: 문자열, 리스트, null 모두 지원
+                    raw_source = parsed.get("source")
+                    if raw_source is None:
+                        source = []
+                    elif isinstance(raw_source, str):
+                        source = [raw_source] if raw_source else []
+                    elif isinstance(raw_source, list):
+                        source = [s for s in raw_source if isinstance(s, str) and s]
+                    else:
+                        source = []
+
                     tags = CharacterTags(
-                        content_rating=parsed.get("content_rating", "unknown"),
-                        character_gender=parsed.get("character_gender", "other"),
-                        source=parsed.get("source"),
-                        language=parsed.get("language", "english"),
+                        content_rating=content_rating,
+                        character_gender=character_gender,
+                        source=source,
+                        language=language,
                         summary=parsed.get("summary", ""),
                         description=parsed.get("description", ""),
                     )
@@ -394,6 +431,13 @@ class BatchTagger:
         Returns:
             최종 통계
         """
+        # --all 옵션일 때 기존 파일 비우기
+        if not skip_existing:
+            print("기존 태깅 데이터 초기화 중...")
+            if self.tagged_file.exists():
+                self.tagged_file.unlink()
+                print(f"  삭제: {self.tagged_file}")
+
         # 1. 배치 준비
         count = self.prepare_batch(limit=limit, skip_existing=skip_existing)
         if count == 0:

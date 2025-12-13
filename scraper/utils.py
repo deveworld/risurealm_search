@@ -100,39 +100,38 @@ def append_jsonl(item: dict, path: Path):
 
 
 class Progress:
-    """진행 상황 저장/복구"""
+    """진행 상황 추적 (characters.jsonl 기반)"""
 
-    def __init__(self, path: Path):
-        self.path = path
-        self.data = self._load()
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        self.characters_path = data_dir / "characters.jsonl"
+        self._completed_uuids = self._load()
 
-    def _load(self) -> dict:
-        if self.path.exists():
-            with open(self.path, "r") as f:
-                return json.load(f)
-        return {
-            "list_completed": False,
-            "detail_completed_uuids": [],
-            "detail_failed_uuids": [],
-        }
+    def _load(self) -> set:
+        """characters.jsonl에서 완료된 UUID 로드"""
+        completed = set()
+        if self.characters_path.exists():
+            with open(self.characters_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        item = json.loads(line)
+                        uuid = item.get("uuid")
+                        if uuid:
+                            completed.add(uuid)
+        return completed
 
-    def save(self):
-        with open(self.path, "w") as f:
-            json.dump(self.data, f, indent=2)
-
-    def mark_list_completed(self):
-        self.data["list_completed"] = True
-        self.save()
+    def is_list_completed(self) -> bool:
+        """목록 수집 완료 여부 (list_*.jsonl 존재 확인)"""
+        list_sfw = self.data_dir / "list_sfw.jsonl"
+        list_nsfw = self.data_dir / "list_nsfw.jsonl"
+        return list_sfw.exists() and list_nsfw.exists()
 
     def mark_detail_completed(self, uuid: str):
-        if uuid not in self.data["detail_completed_uuids"]:
-            self.data["detail_completed_uuids"].append(uuid)
-            self.save()
-
-    def mark_detail_failed(self, uuid: str):
-        if uuid not in self.data["detail_failed_uuids"]:
-            self.data["detail_failed_uuids"].append(uuid)
-            self.save()
+        """완료 표시 (메모리에만, 파일은 scraper에서 직접 씀)"""
+        self._completed_uuids.add(uuid)
 
     def is_detail_done(self, uuid: str) -> bool:
-        return uuid in self.data["detail_completed_uuids"]
+        return uuid in self._completed_uuids
+
+    def get_completed_count(self) -> int:
+        return len(self._completed_uuids)

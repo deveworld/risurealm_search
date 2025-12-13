@@ -14,62 +14,38 @@ from .models import TaggedCharacter, TaggingResult
 
 
 class TaggingProgress:
-    """태깅 진행 상황 추적 (스레드 안전)"""
+    """태깅 진행 상황 추적 (tagged.jsonl 기반, 스레드 안전)"""
 
-    def __init__(self, path: Path):
-        self.path = path
+    def __init__(self, tagged_file: Path):
+        self.tagged_file = tagged_file
         self._lock = Lock()
-        self.data = self._load()
+        self._completed_uuids = self._load()
 
-    def _load(self) -> dict:
-        if self.path.exists():
-            with open(self.path, "r") as f:
-                return json.load(f)
-        return {
-            "completed_uuids": [],
-            "failed_uuids": [],
-            "model_stats": {},
-        }
+    def _load(self) -> set:
+        """tagged.jsonl에서 완료된 UUID 로드"""
+        completed = set()
+        if self.tagged_file.exists():
+            with open(self.tagged_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        item = json.loads(line)
+                        uuid = item.get("uuid")
+                        if uuid:
+                            completed.add(uuid)
+        return completed
 
-    def save(self):
+    def mark_completed(self, uuid: str):
+        """완료 표시 (메모리에만, 파일은 Tagger에서 직접 씀)"""
         with self._lock:
-            with open(self.path, "w") as f:
-                json.dump(self.data, f, indent=2, ensure_ascii=False)
-
-    def mark_completed(self, uuid: str, model: str):
-        with self._lock:
-            if uuid not in self.data["completed_uuids"]:
-                self.data["completed_uuids"].append(uuid)
-
-                if model not in self.data["model_stats"]:
-                    self.data["model_stats"][model] = {"success": 0, "fail": 0}
-                self.data["model_stats"][model]["success"] += 1
-
-        self.save()
-
-    def mark_failed(self, uuid: str, models_tried: list[str]):
-        with self._lock:
-            if uuid not in self.data["failed_uuids"]:
-                self.data["failed_uuids"].append(uuid)
-
-                for model in models_tried:
-                    if model not in self.data["model_stats"]:
-                        self.data["model_stats"][model] = {"success": 0, "fail": 0}
-                    self.data["model_stats"][model]["fail"] += 1
-
-        self.save()
+            self._completed_uuids.add(uuid)
 
     def is_done(self, uuid: str) -> bool:
         with self._lock:
-            return uuid in self.data["completed_uuids"] or uuid in self.data["failed_uuids"]
+            return uuid in self._completed_uuids
 
-    def get_stats(self) -> dict:
+    def get_completed_count(self) -> int:
         with self._lock:
-            return {
-                "completed": len(self.data["completed_uuids"]),
-                "failed": len(self.data["failed_uuids"]),
-                "model_stats": dict(self.data["model_stats"]),
-            }
+            return len(self._completed_uuids)
 
 
 def load_characters(path: Path) -> Generator[dict, None, None]:
@@ -161,9 +137,8 @@ class Tagger:
 
         self.characters_file = data_dir / "characters.jsonl"
         self.tagged_file = data_dir / "tagged.jsonl"
-        self.progress_file = data_dir / "tagging_progress.json"
 
-        self.progress = TaggingProgress(self.progress_file)
+        self.progress = TaggingProgress(self.tagged_file)
 
         # Graceful shutdown
         self._shutdown_requested = False
@@ -251,7 +226,7 @@ class Tagger:
 
         if not pending_chars:
             print("처리할 캐릭터가 없습니다.")
-            return self.progress.get_stats()
+            return {"completed": skipped, "success": 0, "failed": 0}
 
         start_time = time.time()
 
@@ -291,13 +266,14 @@ class Tagger:
                         if result.tags:
                             with self._stats_lock:
                                 self._success += 1
-                            self.progress.mark_completed(char["uuid"], result.model_used)
+                            self.progress.mark_completed(char["uuid"])
                             model_short = result.model_used.split("/")[-1][:15]
                             print(f"[{processed}/{pending_count}] {name[:30]:<30} OK ({model_short})")
                         else:
                             with self._stats_lock:
                                 self._failed += 1
-                            self.progress.mark_failed(char["uuid"], result.models_tried)
+                            # 실패해도 tagged.jsonl에 기록 (tagging_error 포함)
+                            self.progress.mark_completed(char["uuid"])
                             error_short = result.error[:35] if result.error else "unknown"
                             print(f"[{processed}/{pending_count}] {name[:30]:<30} FAIL: {error_short}")
 
@@ -328,8 +304,8 @@ class Tagger:
             self._restore_signal_handlers()
 
         # 최종 통계
-        stats = self.progress.get_stats()
         elapsed_total = time.time() - start_time
+        total_completed = self.progress.get_completed_count()
 
         print("\n" + "=" * 60)
         print("태깅 완료!" if not self._shutdown_requested else "태깅 중단됨 (재개 가능)")
@@ -338,17 +314,13 @@ class Tagger:
         print(f"  성공: {self._success}개")
         print(f"  실패: {self._failed}개")
         print(f"  속도: {self._processed/elapsed_total:.1f}개/초" if elapsed_total > 0 else "")
-        print(f"  총 완료: {stats['completed']}개")
-        print(f"  총 실패: {stats['failed']}개")
-
-        if stats["model_stats"]:
-            print("\n모델별 통계:")
-            for model, stat in stats["model_stats"].items():
-                total_calls = stat["success"] + stat["fail"]
-                success_rate = stat["success"] / total_calls * 100 if total_calls > 0 else 0
-                print(f"  {model}: 성공 {stat['success']}, 실패 {stat['fail']} ({success_rate:.1f}%)")
+        print(f"  총 완료: {total_completed}개")
 
         if self._shutdown_requested:
             print("\n💡 재개하려면 같은 명령을 다시 실행하세요.")
 
-        return stats
+        return {
+            "completed": total_completed,
+            "success": self._success,
+            "failed": self._failed,
+        }
