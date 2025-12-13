@@ -5,8 +5,10 @@ RisuRealm(realm.risuai.net) 캐릭터 검색 엔진입니다. LLM 기반 메타�
 ## 주요 기능
 
 - **자연어 검색**: "판타지 세계의 얀데레 여자 캐릭터" 같은 자연어 쿼리 지원
+- **하이브리드 랭킹**: 키워드 매칭 + 시맨틱 유사도 + 다운로드 가중치
+- **위치 기반 키워드 부스트**: 요약/이름/설명/태그 위치에 따른 가중치 차등 적용
+- **한영 동의어 매핑**: "얀데레" ↔ "yandere" 등 자동 매칭
 - **다중 필터링**: 등급(SFW/NSFW), 성별, 언어별 필터
-- **다운로드 가중치**: 인기 캐릭터가 상위에 노출
 - **증분 업데이트**: 변경된 캐릭터만 효율적으로 동기화
 
 ## 기술 스택
@@ -15,7 +17,7 @@ RisuRealm(realm.risuai.net) 캐릭터 검색 엔진입니다. LLM 기반 메타�
 |---------|------|
 | 임베딩 | Voyage AI (다국어 지원) |
 | 벡터 DB | ChromaDB |
-| LLM 태깅 | Groq API (Llama 3.3 70B) |
+| LLM 태깅 | Groq API (GPT-OSS-120B) |
 | API 서버 | FastAPI |
 | UI | Gradio |
 | 배포 | Docker + GitHub Actions |
@@ -101,6 +103,9 @@ python main.py batch-tag status       # 상태 확인
 python main.py batch-tag download     # 결과 다운로드
 python main.py batch-tag process      # 결과 처리
 python main.py batch-tag process --all # 기존 데이터 교체
+
+# 모델 지정 (기본: openai/gpt-oss-120b)
+python main.py batch-tag run --all --model "openai/gpt-oss-120b"
 ```
 
 ### 벡터 인덱싱
@@ -174,6 +179,49 @@ chroma_db/
 검색 결과
 ```
 
+## 검색 랭킹 알고리즘
+
+검색 점수는 세 가지 요소의 조합으로 계산됩니다:
+
+```
+score = keyword_boost + (similarity × 0.5) + (download_boost × 0.05)
+```
+
+### 키워드 부스트
+
+위치에 따라 다른 가중치를 적용합니다:
+
+| 위치 | 가중치 | 설명 |
+|------|--------|------|
+| 요약 | 0.8 | LLM이 생성한 한 줄 요약 |
+| 태그 | 0.5 | 문서 내 태그 영역 |
+| 이름 | 0.4 | 캐릭터 이름 |
+| 설명 | 0.3 | LLM이 생성한 상세 설명 |
+
+### 한영 동의어 매핑
+
+검색 시 자동으로 한국어-영어 동의어를 매칭합니다:
+
+- 얀데레 ↔ yandere
+- 판타지 ↔ fantasy
+- 로맨스 ↔ romance
+- 학원 ↔ school, academy
+- 메이드 ↔ maid
+- 뱀파이어 ↔ vampire
+- 엘프 ↔ elf
+- 마법사 ↔ mage, wizard, witch
+- 등...
+
+### 커버리지 패널티
+
+검색어의 모든 키워드가 매칭되지 않으면 점수가 감소합니다:
+
+```
+최종 키워드 점수 = 키워드 부스트 × (매칭된 토큰 수 / 전체 토큰 수)
+```
+
+예: "판타지 얀데레 고등학생" 검색 시, 2개만 매칭되면 점수가 2/3로 감소
+
 ## LLM 태깅 항목
 
 | 필드 | 설명 | 값 |
@@ -185,13 +233,24 @@ chroma_db/
 | summary | 한 줄 요약 | 한국어 |
 | description | 상세 설명 | 한국어, 100-500자 |
 
+### 태깅에 사용되는 캐릭터 정보
+
+- 제목, 제작자, 태그, 다운로드 수
+- 로어북/에셋 유무
+- 설명 (list_data.desc)
+- 상세 설명 (detail_data.description)
+- 성격 (detail_data.personality)
+- 시나리오 (detail_data.scenario)
+- 첫 메시지 (detail_data.first_mes)
+- 시스템 지시 (detail_data.post_history_instructions)
+
 ## 필터 옵션
 
-| 필터 | 옵션 |
-|------|------|
-| 등급 | SFW, NSFW |
-| 성별 | Female, Male, Multiple, Other |
-| 언어 | Korean, English, Japanese, Multilingual, Other |
+| 필터 | 옵션 | 기본값 |
+|------|------|--------|
+| 등급 | SFW, NSFW | 전체 |
+| 성별 | Female, Male, Multiple, Other | 전체 |
+| 언어 | Korean, English, Japanese, Multilingual, Other | Korean, Multilingual |
 
 ## API
 
