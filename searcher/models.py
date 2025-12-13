@@ -10,7 +10,7 @@ class SearchQuery(BaseModel):
     q: str = ""  # 자연어 검색어
     rating: Optional[str] = None  # sfw, nsfw, all
     genres: list[str] = []  # 장르 필터
-    gender: Optional[str] = None  # 캐릭터 성별
+    genders: list[str] = []  # 캐릭터 성별 (여러 개 선택 가능)
     language: Optional[str] = None  # 언어
     source: Optional[str] = None  # 원작 필터
     limit: int = 20

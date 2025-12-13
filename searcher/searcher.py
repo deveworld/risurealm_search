@@ -70,9 +70,12 @@ class CharacterSearcher:
         if query.rating and query.rating != "all":
             conditions.append({"content_rating": query.rating})
 
-        # 성별
-        if query.gender:
-            conditions.append({"character_gender": query.gender})
+        # 성별 (여러 개 선택 가능)
+        if query.genders:
+            if len(query.genders) == 1:
+                conditions.append({"character_gender": query.genders[0]})
+            else:
+                conditions.append({"character_gender": {"$in": query.genders}})
 
         # 언어
         if query.language:

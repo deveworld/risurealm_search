@@ -16,7 +16,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
     def search(
         query: str,
         rating: str,
-        gender: str,
+        genders: list[str],
         limit: int,
     ) -> str:
         """검색 실행"""
@@ -25,13 +25,13 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
 
         # 등급 필터
         rating_filter = None if rating == "전체" else rating.lower()
-        # 성별 필터
-        gender_filter = None if gender == "전체" else gender.lower()
+        # 성별 필터 (체크된 항목들을 소문자로)
+        gender_filters = [g.lower() for g in genders] if genders else []
 
         search_query = SearchQuery(
             q=query,
             rating=rating_filter,
-            gender=gender_filter,
+            genders=gender_filters,
             limit=limit,
         )
 
@@ -101,10 +101,10 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                     value="전체",
                 )
             with gr.Column(scale=1):
-                gender_input = gr.Radio(
+                gender_input = gr.CheckboxGroup(
                     label="성별",
-                    choices=["전체", "Female", "Male", "Multiple", "Other"],
-                    value="전체",
+                    choices=["Female", "Male", "Multiple", "Other"],
+                    value=[],
                 )
 
         with gr.Row():
