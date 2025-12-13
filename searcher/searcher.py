@@ -1,6 +1,7 @@
 """캐릭터 검색"""
 
 import math
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -9,6 +10,41 @@ from chromadb.config import Settings
 
 from .embedder import VoyageEmbedder
 from .models import SearchQuery, SearchResult, SearchResponse
+
+
+def tokenize_query(query: str) -> list[str]:
+    """검색어를 토큰으로 분리 (한글, 영어, 숫자)"""
+    # 소문자 변환 및 특수문자 제거
+    query = query.lower()
+    # 한글, 영어, 숫자만 추출
+    tokens = re.findall(r'[가-힣]+|[a-z]+|[0-9]+', query)
+    # 1글자 토큰 제외 (너무 일반적)
+    return [t for t in tokens if len(t) > 1]
+
+
+def calculate_keyword_boost(query_tokens: list[str], name: str, document: str) -> float:
+    """키워드 매칭 부스트 계산"""
+    if not query_tokens:
+        return 0.0
+
+    name_lower = name.lower()
+    doc_lower = document.lower()
+
+    name_matches = 0
+    doc_matches = 0
+
+    for token in query_tokens:
+        if token in name_lower:
+            name_matches += 1
+        if token in doc_lower:
+            doc_matches += 1
+
+    # 이름 매칭은 더 높은 가중치
+    name_ratio = name_matches / len(query_tokens) if query_tokens else 0
+    doc_ratio = doc_matches / len(query_tokens) if query_tokens else 0
+
+    # 이름 매칭: 최대 30% 부스트, 문서 매칭: 최대 15% 부스트
+    return name_ratio * 0.3 + doc_ratio * 0.15
 
 
 def parse_download_count(download_str: str) -> int:
@@ -134,6 +170,7 @@ class CharacterSearcher:
         # 검색어가 있으면 벡터 검색
         if query.q:
             query_embedding = self.embedder.embed_query(query.q)
+            query_tokens = tokenize_query(query.q)
 
             results = self.collection.query(
                 query_embeddings=[query_embedding],
@@ -156,7 +193,13 @@ class CharacterSearcher:
                     # download 가중치 적용
                     downloads = parse_download_count(metadata.get("download", "0"))
                     download_boost = math.log10(downloads + 10) / 10  # 0.1 ~ 0.7 범위
-                    score = similarity * (1 + download_boost * 0.3)  # 최대 21% 부스트
+
+                    # 키워드 매칭 부스트
+                    name = metadata.get("name", "")
+                    keyword_boost = calculate_keyword_boost(query_tokens, name, document)
+
+                    # 최종 점수: 유사도 * (1 + 다운로드 부스트 + 키워드 부스트)
+                    score = similarity * (1 + download_boost * 0.3 + keyword_boost)
 
                     items.append(self._metadata_to_result(metadata, document, score))
 
