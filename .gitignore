@@ -14,3 +14,8 @@ wheels/
 
 # Backup files
 *.bak
+
+# Data files
+data/*.jsonl
+data/chroma_db/
+data/batch/
