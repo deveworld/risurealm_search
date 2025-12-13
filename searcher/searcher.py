@@ -66,9 +66,12 @@ class CharacterSearcher:
         """Chroma where 필터 생성"""
         conditions = []
 
-        # 콘텐츠 등급
-        if query.rating and query.rating != "all":
-            conditions.append({"content_rating": query.rating})
+        # 콘텐츠 등급 (여러 개 선택 가능)
+        if query.ratings:
+            if len(query.ratings) == 1:
+                conditions.append({"content_rating": query.ratings[0]})
+            else:
+                conditions.append({"content_rating": {"$in": query.ratings}})
 
         # 성별 (여러 개 선택 가능)
         if query.genders:
@@ -77,13 +80,12 @@ class CharacterSearcher:
             else:
                 conditions.append({"character_gender": {"$in": query.genders}})
 
-        # 언어
-        if query.language:
-            conditions.append({"language": query.language})
-
-        # 원작
-        if query.source:
-            conditions.append({"source": query.source})
+        # 언어 (여러 개 선택 가능)
+        if query.languages:
+            if len(query.languages) == 1:
+                conditions.append({"language": query.languages[0]})
+            else:
+                conditions.append({"language": {"$in": query.languages}})
 
         if not conditions:
             return None
@@ -91,6 +93,13 @@ class CharacterSearcher:
             return conditions[0]
         else:
             return {"$and": conditions}
+
+    def _filter_by_genres(self, items: list[SearchResult], genres: list[str]) -> list[SearchResult]:
+        """장르 필터링 (포스트 필터링)"""
+        if not genres:
+            return items
+        # 선택된 장르 중 하나라도 포함되어 있으면 통과
+        return [item for item in items if any(g in item.genres for g in genres)]
 
     def _metadata_to_result(self, metadata: dict, document: str, score: float) -> SearchResult:
         """메타데이터를 SearchResult로 변환"""
@@ -118,13 +127,17 @@ class CharacterSearcher:
         """검색 실행"""
         where_filter = self._build_where_filter(query)
 
+        # 장르 필터가 있으면 더 많은 결과를 가져와서 포스트 필터링
+        fetch_multiplier = 5 if query.genres else 1
+        fetch_limit = (query.limit + query.offset) * fetch_multiplier
+
         # 검색어가 있으면 벡터 검색
         if query.q:
             query_embedding = self.embedder.embed_query(query.q)
 
             results = self.collection.query(
                 query_embeddings=[query_embedding],
-                n_results=query.limit + query.offset,
+                n_results=fetch_limit,
                 where=where_filter,
                 include=["documents", "metadatas", "distances"],
             )
@@ -147,6 +160,9 @@ class CharacterSearcher:
 
                     items.append(self._metadata_to_result(metadata, document, score))
 
+            # 장르 포스트 필터링
+            items = self._filter_by_genres(items, query.genres)
+
             # 점수순 재정렬 (download 가중치 반영)
             items.sort(key=lambda x: x.score, reverse=True)
 
@@ -157,7 +173,7 @@ class CharacterSearcher:
             # 검색어 없으면 필터만 적용
             results = self.collection.get(
                 where=where_filter,
-                limit=query.limit + query.offset,
+                limit=fetch_limit,
                 include=["documents", "metadatas"],
             )
 
@@ -168,6 +184,8 @@ class CharacterSearcher:
                     document = results["documents"][i] if results["documents"] else ""
                     items.append(self._metadata_to_result(metadata, document, 0.0))
 
+            # 장르 포스트 필터링
+            items = self._filter_by_genres(items, query.genres)
             items = items[query.offset : query.offset + query.limit]
 
         return SearchResponse(
@@ -183,7 +201,8 @@ class CharacterSearcher:
         limit: int = 10,
     ) -> list[SearchResult]:
         """간단한 검색 인터페이스"""
-        query = SearchQuery(q=q, rating=rating, limit=limit)
+        ratings = [rating] if rating else []
+        query = SearchQuery(q=q, ratings=ratings, limit=limit)
         response = self.search(query)
         return response.results
 

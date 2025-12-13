@@ -1,7 +1,6 @@
 """Gradio 검색 UI"""
 
 from pathlib import Path
-from typing import Optional
 
 import gradio as gr
 
@@ -15,23 +14,28 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
 
     def search(
         query: str,
-        rating: str,
+        ratings: list[str],
         genders: list[str],
+        languages: list[str],
+        genres: list[str],
         limit: int,
     ) -> str:
         """검색 실행"""
         if not query.strip():
             return "검색어를 입력하세요."
 
-        # 등급 필터
-        rating_filter = None if rating == "전체" else rating.lower()
-        # 성별 필터 (체크된 항목들을 소문자로)
+        # 필터 (체크된 항목들을 소문자로)
+        rating_filters = [r.lower() for r in ratings] if ratings else []
         gender_filters = [g.lower() for g in genders] if genders else []
+        language_filters = [l.lower() for l in languages] if languages else []
+        genre_filters = [g.lower() for g in genres] if genres else []
 
         search_query = SearchQuery(
             q=query,
-            rating=rating_filter,
+            ratings=rating_filters,
             genders=gender_filters,
+            languages=language_filters,
+            genres=genre_filters,
             limit=limit,
         )
 
@@ -43,7 +47,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         # 결과 포맷팅
         results = []
         for i, r in enumerate(response.results, 1):
-            genres = ", ".join(r.genres[:3]) if r.genres else "없음"
+            genres_str = ", ".join(r.genres[:3]) if r.genres else "없음"
 
             # desc에서 요약과 설명 추출
             summary = ""
@@ -58,9 +62,9 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
 
 
             result = f"""### [{i}] {r.name or '(이름 없음)'}
-**제작자**: {r.authorname or '알 수 없음'} | **등급**: {r.content_rating.upper()} | **유사도**: {r.score:.1%}
+**제작자**: {r.authorname or '알 수 없음'} | **등급**: {r.content_rating.upper()} | **성별**: {r.character_gender} | **유사도**: {r.score:.1%}
 
-**장르**: {genres}
+**장르**: {genres_str} | **언어**: {r.language}
 
 **요약**: {summary or '없음'}
 
@@ -88,17 +92,20 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
         )
 
         with gr.Row():
-            with gr.Column(scale=4):
-                query_input = gr.Textbox(
-                    label="검색어",
-                    placeholder="예: 판타지 세계의 얀데레 여자 캐릭터",
-                    lines=1,
-                )
+            query_input = gr.Textbox(
+                label="검색어",
+                placeholder="예: 판타지 세계의 얀데레 여자 캐릭터",
+                lines=1,
+                scale=4,
+            )
+            search_btn = gr.Button("검색", variant="primary", scale=1)
+
+        with gr.Row():
             with gr.Column(scale=1):
-                rating_input = gr.Radio(
+                rating_input = gr.CheckboxGroup(
                     label="등급",
-                    choices=["전체", "SFW", "NSFW"],
-                    value="전체",
+                    choices=["SFW", "NSFW"],
+                    value=[],
                 )
             with gr.Column(scale=1):
                 gender_input = gr.CheckboxGroup(
@@ -106,6 +113,23 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                     choices=["Female", "Male", "Multiple", "Other"],
                     value=[],
                 )
+            with gr.Column(scale=1):
+                language_input = gr.CheckboxGroup(
+                    label="언어",
+                    choices=["Korean", "English", "Japanese", "Multilingual", "Chinese"],
+                    value=[],
+                )
+
+        with gr.Row():
+            genre_input = gr.CheckboxGroup(
+                label="장르",
+                choices=[
+                    "Fantasy", "Modern", "Romance", "Comedy", "Dark_fantasy",
+                    "School", "Simulator", "Game_original", "Scifi", "Horror",
+                    "Historical", "Anime_original", "Isekai", "Adventure"
+                ],
+                value=[],
+            )
 
         with gr.Row():
             limit_input = gr.Slider(
@@ -115,20 +139,19 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                 value=10,
                 step=5,
             )
-            search_btn = gr.Button("검색", variant="primary")
 
         results_output = gr.Markdown(label="검색 결과")
 
         # 이벤트 연결
         search_btn.click(
             fn=search,
-            inputs=[query_input, rating_input, gender_input, limit_input],
+            inputs=[query_input, rating_input, gender_input, language_input, genre_input, limit_input],
             outputs=results_output,
         )
 
         query_input.submit(
             fn=search,
-            inputs=[query_input, rating_input, gender_input, limit_input],
+            inputs=[query_input, rating_input, gender_input, language_input, genre_input, limit_input],
             outputs=results_output,
         )
 

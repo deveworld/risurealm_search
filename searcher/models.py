@@ -8,11 +8,10 @@ class SearchQuery(BaseModel):
     """검색 쿼리"""
 
     q: str = ""  # 자연어 검색어
-    rating: Optional[str] = None  # sfw, nsfw, all
-    genres: list[str] = []  # 장르 필터
+    ratings: list[str] = []  # sfw, nsfw (여러 개 선택 가능)
+    genres: list[str] = []  # 장르 필터 (여러 개 선택 가능)
     genders: list[str] = []  # 캐릭터 성별 (여러 개 선택 가능)
-    language: Optional[str] = None  # 언어
-    source: Optional[str] = None  # 원작 필터
+    languages: list[str] = []  # 언어 (여러 개 선택 가능)
     limit: int = 20
     offset: int = 0
 
