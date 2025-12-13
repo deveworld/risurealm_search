@@ -123,8 +123,8 @@ risurealm_search/
 |------|------|
 | 등급 | SFW, NSFW |
 | 성별 | Female, Male, Multiple, Other |
-| 언어 | Korean, English, Japanese, Multilingual, Chinese |
-| 장르 | Fantasy, Modern, Romance, Comedy, Dark_fantasy, School, Simulator, Game_original, Scifi, Horror, Historical, Anime_original, Isekai, Adventure |
+| 언어 | Korean, English, Japanese, Multilingual, Other |
+| 장르 | 자유 입력 (예: fantasy, romance, school, horror 등) |
 
 ## API
 

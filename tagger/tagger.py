@@ -121,6 +121,8 @@ def format_character_prompt(char: dict) -> str:
             parts.append(f"\n성격:\n{detail_data['personality'][:500]}")
         if detail_data.get("scenario"):
             parts.append(f"\n시나리오:\n{detail_data['scenario'][:500]}")
+        if detail_data.get("first_mes"):
+            parts.append(f"\n첫 메시지:\n{detail_data['first_mes'][:1500]}")
 
     return "\n".join(parts)
 

@@ -17,7 +17,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         ratings: list[str],
         genders: list[str],
         languages: list[str],
-        genres: list[str],
+        genres_text: str,
         limit: int,
     ) -> str:
         """검색 실행"""
@@ -27,17 +27,20 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         # 전체 선택된 경우 빈 리스트로 (필터 미적용)
         all_ratings = ["sfw", "nsfw"]
         all_genders = ["female", "male", "multiple", "other"]
-        all_languages = ["korean", "english", "japanese", "multilingual", "chinese"]
-        all_genres = [
-            "fantasy", "modern", "romance", "comedy", "dark_fantasy",
-            "school", "simulator", "game_original", "scifi", "horror",
-            "historical", "anime_original", "isekai", "adventure"
-        ]
+        all_languages = ["korean", "english", "japanese", "multilingual", "other"]
 
         rating_filters = [r.lower() for r in ratings] if ratings else []
         gender_filters = [g.lower() for g in genders] if genders else []
         language_filters = [l.lower() for l in languages] if languages else []
-        genre_filters = [g.lower() for g in genres] if genres else []
+
+        # 장르: 텍스트에서 파싱 (쉼표 또는 공백으로 구분)
+        genre_filters = []
+        if genres_text.strip():
+            # 쉼표로 먼저 분리, 없으면 공백으로 분리
+            if "," in genres_text:
+                genre_filters = [g.strip().lower() for g in genres_text.split(",") if g.strip()]
+            else:
+                genre_filters = [g.strip().lower() for g in genres_text.split() if g.strip()]
 
         # 전체 선택 시 필터 미적용 (성능 최적화)
         if set(rating_filters) >= set(all_ratings):
@@ -46,8 +49,6 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
             gender_filters = []
         if set(language_filters) >= set(all_languages):
             language_filters = []
-        if set(genre_filters) >= set(all_genres):
-            genre_filters = []
 
         search_query = SearchQuery(
             q=query,
@@ -122,12 +123,7 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
         # 필터 옵션 정의
         rating_choices = ["SFW", "NSFW"]
         gender_choices = ["Female", "Male", "Multiple", "Other"]
-        language_choices = ["Korean", "English", "Japanese", "Multilingual", "Chinese"]
-        genre_choices = [
-            "Fantasy", "Modern", "Romance", "Comedy", "Dark_fantasy",
-            "School", "Simulator", "Game_original", "Scifi", "Horror",
-            "Historical", "Anime_original", "Isekai", "Adventure"
-        ]
+        language_choices = ["Korean", "English", "Japanese", "Multilingual", "Other"]
 
         with gr.Row():
             rating_input = gr.CheckboxGroup(
@@ -155,10 +151,10 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
                     choices=language_choices,
                     value=[],  # 빈 값 = 전체
                 )
-            genre_input = gr.CheckboxGroup(
+            genre_input = gr.Textbox(
                 label="장르",
-                choices=genre_choices,
-                value=[],  # 빈 값 = 전체
+                placeholder="예: fantasy, romance (쉼표 또는 공백으로 구분)",
+                lines=1,
             )
 
         results_output = gr.Markdown(label="검색 결과")
