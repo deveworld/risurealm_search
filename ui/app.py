@@ -130,39 +130,35 @@ RisuRealm의 캐릭터를 검색합니다. 자연어로 원하는 캐릭터를 �
         ]
 
         with gr.Row():
-            with gr.Column(scale=1):
-                rating_input = gr.CheckboxGroup(
-                    label="등급",
-                    choices=rating_choices,
-                    value=rating_choices,  # 전체 선택
-                )
-            with gr.Column(scale=1):
-                gender_input = gr.CheckboxGroup(
-                    label="성별",
-                    choices=gender_choices,
-                    value=gender_choices,  # 전체 선택
-                )
-            with gr.Column(scale=1):
-                language_input = gr.CheckboxGroup(
-                    label="언어",
-                    choices=language_choices,
-                    value=language_choices,  # 전체 선택
-                )
-
-        with gr.Row():
-            genre_input = gr.CheckboxGroup(
-                label="장르",
-                choices=genre_choices,
-                value=genre_choices,  # 전체 선택
+            rating_input = gr.CheckboxGroup(
+                label="등급",
+                choices=rating_choices,
+                value=rating_choices,
             )
-
-        with gr.Row():
             limit_input = gr.Slider(
                 label="결과 수",
                 minimum=5,
                 maximum=50,
                 value=10,
                 step=5,
+            )
+
+        with gr.Accordion("고급 필터", open=False):
+            with gr.Row():
+                gender_input = gr.CheckboxGroup(
+                    label="성별",
+                    choices=gender_choices,
+                    value=gender_choices,
+                )
+                language_input = gr.CheckboxGroup(
+                    label="언어",
+                    choices=language_choices,
+                    value=language_choices,
+                )
+            genre_input = gr.CheckboxGroup(
+                label="장르",
+                choices=genre_choices,
+                value=genre_choices,
             )
 
         results_output = gr.Markdown(label="검색 결과")
