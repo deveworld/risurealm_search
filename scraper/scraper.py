@@ -1,0 +1,392 @@
+"""스크래퍼 (병렬 처리 + Rate Limit 대응 + Graceful Shutdown)"""
+
+import asyncio
+import json
+import signal
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+from dataclasses import dataclass
+
+from .client import RisuRealmClient
+from .models import CharacterListItem, CharacterDetail, ScrapedCharacter, DetailSource
+from .utils import extract_detail, save_jsonl, load_jsonl, append_jsonl, Progress
+
+
+@dataclass
+class ScrapeResult:
+    """스크래핑 결과"""
+    uuid: str
+    nsfw: bool
+    list_item: dict
+    detail_data: Optional[dict]
+    source: str
+
+
+class RisuRealmScraper:
+    def __init__(
+        self,
+        data_dir: Path = Path("data"),
+        delay: float = 0.2,
+        max_concurrent: int = 10,
+    ):
+        self.data_dir = data_dir
+        self.data_dir.mkdir(exist_ok=True)
+
+        self.delay = delay
+        self.max_concurrent = max_concurrent
+
+        # 파일 경로
+        self.list_sfw_path = data_dir / "list_sfw.jsonl"
+        self.list_nsfw_path = data_dir / "list_nsfw.jsonl"
+        self.types_path = data_dir / "types.json"
+        self.characters_path = data_dir / "characters.jsonl"
+        self.progress_path = data_dir / "progress.json"
+
+        self.progress = Progress(self.progress_path)
+
+        # Graceful shutdown
+        self._shutdown_requested = False
+
+        # 통계
+        self._stats = {"success": 0, "fail": 0}
+        self._stats_lock = asyncio.Lock()
+
+    def _setup_signal_handlers(self):
+        """시그널 핸들러 설정 (asyncio 호환)"""
+        loop = asyncio.get_event_loop()
+
+        def handle_signal():
+            if self._shutdown_requested:
+                print("\n\n강제 종료...")
+                sys.exit(1)
+            self._shutdown_requested = True
+            print("\n\n⚠️  종료 요청됨. 진행 중인 작업 완료 후 저장 예정...")
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, handle_signal)
+
+    async def _fetch_types_batch(
+        self,
+        client: RisuRealmClient,
+        items: dict[str, dict],
+    ) -> dict[str, str]:
+        """캐릭터 타입을 배치로 조회"""
+        uuids = list(items.keys())
+        total = len(uuids)
+        types = {}
+
+        print(f"\n캐릭터 타입 조회 중... ({total}개)")
+
+        batch_size = self.max_concurrent
+        for i in range(0, total, batch_size):
+            if self._shutdown_requested:
+                break
+
+            batch = uuids[i:i + batch_size]
+            tasks = [client.fetch_character_type(uuid) for uuid in batch]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for uuid, result in zip(batch, results):
+                if isinstance(result, Exception):
+                    types[uuid] = "normal"
+                else:
+                    types[uuid] = result
+
+            processed = min(i + batch_size, total)
+            if processed % 500 < batch_size or processed == total:
+                charx_count = sum(1 for t in types.values() if t == "charx")
+                print(f"  타입 조회: {processed}/{total} (charx: {charx_count}개)")
+
+        return types
+
+    async def scrape_list(self) -> dict[str, dict]:
+        """SFW/NSFW 전체 목록 수집 + 타입 조회"""
+        if self.progress.data["list_completed"]:
+            print("목록 수집 이미 완료됨, 기존 데이터 로드")
+            sfw_items = load_jsonl(self.list_sfw_path)
+            nsfw_items = load_jsonl(self.list_nsfw_path)
+
+            # UUID 기준 중복 제거, SFW 우선 (양쪽에 있으면 nsfw=False)
+            all_items = {}
+            for item in nsfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": True, "type": "normal"}
+            for item in sfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": False, "type": "normal"}
+
+            print(f"중복 제거 후: {len(all_items)}개")
+
+            # 타입 로드
+            if self.types_path.exists():
+                print("타입 캐시 로드 중...")
+                with open(self.types_path, "r") as f:
+                    types = json.load(f)
+                
+                # 기존 캐시 적용
+                for uuid, char_type in types.items():
+                    if uuid in all_items:
+                        all_items[uuid]["type"] = char_type
+                
+                print("캐시된 타입 적용 완료.")
+            else:
+                types = {}
+
+            # 캐시에 없는 항목 확인
+            # 'normal'이 기본값이므로, types에 명시적으로 없으면 조회 대상이 될 수 있음
+            # 하지만 이미 fetch_types_batch는 결과를 types에 저장하므로, 
+            # types 키에 없는 것만 조회하면 됨.
+            missing_uuids = [uuid for uuid in all_items if uuid not in types]
+
+            if missing_uuids:
+                print(f"새로운 캐릭터 {len(missing_uuids)}개 타입 조회 필요")
+                async with RisuRealmClient(
+                    delay=self.delay,
+                    max_concurrent=self.max_concurrent,
+                ) as client:
+                    # missing_uuids에 해당하는 항목만 dict로 구성
+                    target_items = {uuid: all_items[uuid] for uuid in missing_uuids}
+                    new_types = await self._fetch_types_batch(client, target_items)
+                    
+                    # 결과 병합
+                    types.update(new_types)
+                    for uuid, char_type in new_types.items():
+                        if uuid in all_items:
+                            all_items[uuid]["type"] = char_type
+                    
+                    # 타입 캐시 저장
+                    with open(self.types_path, "w", encoding="utf-8") as f:
+                        json.dump(types, f, ensure_ascii=False, indent=2)
+            
+            charx_count = sum(1 for d in all_items.values() if d.get("type") == "charx")
+            print(f"타입 준비 완료: normal {len(all_items) - charx_count}개, charx {charx_count}개")
+
+            return all_items
+
+        async with RisuRealmClient(
+            delay=self.delay,
+            max_concurrent=self.max_concurrent,
+        ) as client:
+            # SFW 수집
+            print("SFW 목록 수집 중...")
+            sfw_items = await client.fetch_all_list(
+                nsfw=False,
+                on_progress=lambda p, n: print(f"  페이지 {p}, 총 {n}개"),
+            )
+            save_jsonl(sfw_items, self.list_sfw_path)
+            print(f"  SFW 완료: {len(sfw_items)}개")
+
+            if self._shutdown_requested:
+                print("\n목록 수집 중단됨 (SFW만 완료)")
+                nsfw_items = []
+            else:
+                # NSFW 수집
+                print("NSFW 목록 수집 중...")
+                nsfw_items = await client.fetch_all_list(
+                    nsfw=True,
+                    on_progress=lambda p, n: print(f"  페이지 {p}, 총 {n}개"),
+                )
+
+                # 중복 제거: SFW에 이미 있는 항목은 NSFW 목록에서 제외
+                sfw_ids = {item["id"] for item in sfw_items}
+                original_count = len(nsfw_items)
+                nsfw_items = [item for item in nsfw_items if item["id"] not in sfw_ids]
+                filtered_count = original_count - len(nsfw_items)
+                if filtered_count > 0:
+                    print(f"  중복 제거: {filtered_count}개 항목이 SFW 목록과 중복되어 제외됨")
+
+                save_jsonl(nsfw_items, self.list_nsfw_path)
+                print(f"  NSFW 완료: {len(nsfw_items)}개")
+
+            if not self._shutdown_requested:
+                self.progress.mark_list_completed()
+
+            # UUID 기준 중복 제거, SFW 우선 (양쪽에 있으면 nsfw=False)
+            all_items = {}
+            for item in nsfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": True, "type": "normal"}
+            for item in sfw_items:
+                all_items[item["id"]] = {"item": item, "nsfw": False, "type": "normal"}
+
+            print(f"중복 제거 후: {len(all_items)}개")
+
+            # 타입 조회
+            if not self._shutdown_requested:
+                types = await self._fetch_types_batch(client, all_items)
+                for uuid, char_type in types.items():
+                    if uuid in all_items:
+                        all_items[uuid]["type"] = char_type
+
+                # 타입 캐시 저장
+                with open(self.types_path, "w", encoding="utf-8") as f:
+                    json.dump(types, f, ensure_ascii=False, indent=2)
+
+                charx_count = sum(1 for d in all_items.values() if d["type"] == "charx")
+                print(f"타입 조회 완료 (캐시 저장됨): normal {len(all_items) - charx_count}개, charx {charx_count}개")
+
+        return all_items
+
+    async def _fetch_single(
+        self,
+        client: RisuRealmClient,
+        uuid: str,
+        item_data: dict,
+    ) -> Optional[ScrapeResult]:
+        """단일 캐릭터 상세 정보 조회"""
+        if self._shutdown_requested:
+            return None
+
+        list_item = item_data["item"]
+        nsfw = item_data["nsfw"]
+        char_type = item_data.get("type", "normal")
+
+        raw_detail, source = await client.fetch_detail(uuid, char_type)
+
+        detail_data = None
+        if raw_detail:
+            detail_data = extract_detail(raw_detail, source)
+
+        return ScrapeResult(
+            uuid=uuid,
+            nsfw=nsfw,
+            list_item=list_item,
+            detail_data=detail_data,
+            source=source,
+        )
+
+    async def scrape_details(
+        self,
+        items: dict[str, dict],
+        count: Optional[int] = None,
+    ):
+        """상세 정보 수집 (병렬 처리)"""
+        # 이미 완료된 UUID 제외
+        pending_uuids = [
+            uuid for uuid in items.keys() if not self.progress.is_detail_done(uuid)
+        ]
+
+        if count:
+            pending_uuids = pending_uuids[:count]
+
+        total = len(pending_uuids)
+        completed = len(self.progress.data["detail_completed_uuids"])
+        failed = len(self.progress.data["detail_failed_uuids"])
+
+        print(f"상세 정보 수집: {total}개 대기, {completed}개 완료, {failed}개 실패")
+        print(f"동시 처리: {self.max_concurrent}개")
+
+        if not pending_uuids:
+            print("수집할 항목이 없습니다.")
+            return
+
+        start_time = time.time()
+        processed = 0
+        success_count = 0
+        fail_count = 0
+
+        async with RisuRealmClient(
+            delay=self.delay,
+            max_concurrent=self.max_concurrent,
+        ) as client:
+            # 배치로 병렬 처리
+            batch_size = self.max_concurrent
+
+            for i in range(0, len(pending_uuids), batch_size):
+                if self._shutdown_requested:
+                    print(f"\n중단됨. {processed}개 처리 완료.")
+                    break
+
+                batch = pending_uuids[i:i + batch_size]
+
+                # 배치 내 병렬 실행
+                tasks = [
+                    self._fetch_single(client, uuid, items[uuid])
+                    for uuid in batch
+                ]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+
+                # 결과 처리
+                for result in results:
+                    if self._shutdown_requested:
+                        break
+
+                    if isinstance(result, Exception):
+                        fail_count += 1
+                        processed += 1
+                        continue
+
+                    if result is None:
+                        continue
+
+                    processed += 1
+                    name = result.list_item.get("name", "Unknown")
+
+                    if result.detail_data:
+                        success_count += 1
+                        status = f"OK ({result.source})"
+                    else:
+                        fail_count += 1
+                        status = "FAIL (list_only)"
+
+                    print(f"[{processed}/{total}] {name[:35]:<35} {status}")
+
+                    # 저장
+                    character = ScrapedCharacter(
+                        uuid=result.uuid,
+                        nsfw=result.nsfw,
+                        list_data=CharacterListItem(**result.list_item),
+                        detail_data=CharacterDetail(**result.detail_data) if result.detail_data else None,
+                        detail_source=DetailSource(result.source),
+                        scraped_at=int(time.time()),
+                    )
+                    append_jsonl(character.model_dump(), self.characters_path)
+                    self.progress.mark_detail_completed(result.uuid)
+
+                # 배치 완료 후 진행률 출력
+                if processed > 0 and processed % 100 < batch_size:
+                    elapsed = time.time() - start_time
+                    rate = processed / elapsed if elapsed > 0 else 0
+                    remaining = (total - processed) / rate if rate > 0 else 0
+                    print(
+                        f"\n--- 진행: {processed}/{total} ({processed/total*100:.1f}%), "
+                        f"성공: {success_count}, 실패: {fail_count}, "
+                        f"속도: {rate:.1f}/s, 예상 남은 시간: {remaining/60:.1f}분 ---\n"
+                    )
+
+        # 최종 통계
+        elapsed_total = time.time() - start_time
+        print("\n" + "=" * 60)
+        print("상세 수집 완료!" if not self._shutdown_requested else "상세 수집 중단됨 (재개 가능)")
+        print(f"  소요 시간: {elapsed_total/60:.1f}분")
+        print(f"  처리: {processed}개")
+        print(f"  성공: {success_count}개")
+        print(f"  실패: {fail_count}개")
+        print(f"  속도: {processed/elapsed_total:.1f}개/초" if elapsed_total > 0 else "")
+        print(f"  총 완료: {len(self.progress.data['detail_completed_uuids'])}개")
+
+        if self._shutdown_requested:
+            print("\n💡 재개하려면 같은 명령을 다시 실행하세요.")
+
+    async def run(self, count: Optional[int] = None):
+        """전체 스크래핑 실행"""
+        print("=== RisuRealm 스크래퍼 시작 ===")
+        print()
+
+        # 시그널 핸들러 설정
+        try:
+            self._setup_signal_handlers()
+        except NotImplementedError:
+            pass  # Windows
+
+        # 1. 목록 수집
+        items = await self.scrape_list()
+
+        if self._shutdown_requested:
+            print("\n목록 수집 단계에서 중단됨")
+            return
+
+        # 2. 상세 정보 수집
+        await self.scrape_details(items, count=count)
+
+        if not self._shutdown_requested:
+            print("\n=== 스크래핑 완료 ===")
