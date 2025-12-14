@@ -181,7 +181,12 @@ def cmd_index(args):
     from searcher import ChromaIndexer
 
     with ChromaIndexer(data_dir=args.data_dir) as indexer:
-        indexer.index_all(rebuild=args.rebuild)
+        if args.metadata_only:
+            indexer.update_metadata_only()
+        elif args.bm25_only:
+            indexer.build_bm25_only()
+        else:
+            indexer.index_all(rebuild=args.rebuild)
 
 
 def cmd_search(args):
@@ -376,6 +381,16 @@ def main():
         "--rebuild",
         action="store_true",
         help="기존 인덱스 삭제 후 재생성",
+    )
+    index_parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="메타데이터만 업데이트 (임베딩 재생성 없음, API 비용 절감)",
+    )
+    index_parser.add_argument(
+        "--bm25-only",
+        action="store_true",
+        help="BM25 인덱스만 구축 (벡터 인덱스는 유지)",
     )
 
     # search 명령

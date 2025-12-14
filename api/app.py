@@ -27,7 +27,7 @@ class CharacterResponse(BaseModel):
     desc: str
     url: str
     content_rating: str
-    genres: list[str]
+    tags: list[str]
     character_gender: str
     language: str
     source: Optional[str] = None
@@ -64,7 +64,7 @@ def create_app(data_dir: Path = Path("data")) -> FastAPI:
 
     # CORS 설정
     app.add_middleware(
-        CORSMiddleware,
+        CORSMiddleware,  # type: ignore[arg-type]
         allow_origins=["*"],
         allow_credentials=True,
         allow_methods=["*"],
@@ -91,10 +91,9 @@ def create_app(data_dir: Path = Path("data")) -> FastAPI:
 
         query = SearchQuery(
             q=q,
-            rating=rating,
-            gender=gender,
-            language=language,
-            source=source,
+            ratings=[rating] if rating else [],
+            genders=[gender] if gender else [],
+            languages=[language] if language else [],
             limit=limit,
             offset=offset,
         )
@@ -111,7 +110,7 @@ def create_app(data_dir: Path = Path("data")) -> FastAPI:
                     "desc": r.desc,
                     "url": r.url,
                     "content_rating": r.content_rating,
-                    "genres": r.genres,
+                    "tags": r.tags,
                     "character_gender": r.character_gender,
                     "language": r.language,
                     "source": r.source,
@@ -136,23 +135,28 @@ def create_app(data_dir: Path = Path("data")) -> FastAPI:
             if not result["ids"]:
                 raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다")
 
-            metadata = result["metadatas"][0]
-            document = result["documents"][0] if result["documents"] else ""
+            metadatas = result["metadatas"]
+            documents = result["documents"]
+            if not metadatas:
+                raise HTTPException(status_code=404, detail="캐릭터를 찾을 수 없습니다")
 
-            genres = metadata.get("genres", "")
-            genres_list = [g.strip() for g in genres.split(",") if g.strip()]
+            metadata = metadatas[0]
+            document = documents[0] if documents else ""
+
+            tags_str = str(metadata.get("tags", "")) if metadata.get("tags") else ""
+            tags_list = [t.strip() for t in tags_str.split(",") if t.strip()]
 
             return CharacterResponse(
-                uuid=metadata["uuid"],
-                name=metadata["name"],
-                authorname=metadata.get("authorname", ""),
-                desc=document,
+                uuid=str(metadata.get("uuid", "")),
+                name=str(metadata.get("name", "")),
+                authorname=str(metadata.get("authorname", "")),
+                desc=str(document) if document else "",
                 url=f"{searcher.REALM_URL}/{uuid}",
-                content_rating=metadata.get("content_rating", "unknown"),
-                genres=genres_list,
-                character_gender=metadata.get("character_gender", "other"),
-                language=metadata.get("language", "english"),
-                source=metadata.get("source") or None,
+                content_rating=str(metadata.get("content_rating", "unknown")),
+                tags=tags_list,
+                character_gender=str(metadata.get("character_gender", "other")),
+                language=str(metadata.get("language", "english")),
+                source=str(metadata.get("source")) if metadata.get("source") else None,
             )
 
         except Exception as e:

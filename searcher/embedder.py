@@ -2,6 +2,7 @@
 
 import os
 import time
+from collections.abc import Callable
 from typing import Optional
 
 import httpx
@@ -11,7 +12,7 @@ class VoyageEmbedder:
     """Voyage AI 임베딩 클라이언트"""
 
     BASE_URL = "https://api.voyageai.com/v1/embeddings"
-    DEFAULT_MODEL = "voyage-3-lite"  # 빠르고 저렴, 다국어 지원
+    DEFAULT_MODEL = "voyage-3-large"  # 최고 성능, 다국어 지원
 
     def __init__(
         self,
@@ -57,7 +58,7 @@ class VoyageEmbedder:
         data = response.json()
 
         # 결과를 인덱스 순서대로 정렬
-        embeddings = [None] * len(texts)
+        embeddings: list[list[float]] = [[] for _ in range(len(texts))]
         for item in data["data"]:
             embeddings[item["index"]] = item["embedding"]
 
@@ -66,7 +67,7 @@ class VoyageEmbedder:
     def embed_all(
         self,
         texts: list[str],
-        on_progress: Optional[callable] = None,
+        on_progress: Optional[Callable[[int, int], None]] = None,
         delay: float = 0.1,
     ) -> list[list[float]]:
         """대량 텍스트 임베딩 (배치 처리)"""

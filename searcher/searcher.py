@@ -1,4 +1,4 @@
-"""캐릭터 검색"""
+"""캐릭터 검색 (하이브리드: 벡터 + BM25)"""
 
 import math
 import re
@@ -10,88 +10,73 @@ from chromadb.config import Settings
 
 from .embedder import VoyageEmbedder
 from .models import SearchQuery, SearchResult, SearchResponse
+from .bm25 import BM25Index
+from .synonyms import matches_with_synonyms
 
 
-def tokenize_query(query: str) -> list[str]:
-    """검색어를 토큰으로 분리 (한글, 영어, 숫자)"""
-    # 소문자 변환 및 특수문자 제거
+def tokenize_query(query: str, min_length: int = 1) -> list[str]:
+    """검색어를 토큰으로 분리 (한글, 영어, 숫자)
+
+    Args:
+        query: 검색어
+        min_length: 최소 토큰 길이 (기본 1, 1글자 허용)
+
+    Returns:
+        토큰 목록
+    """
     query = query.lower()
-    # 한글, 영어, 숫자만 추출
     tokens = re.findall(r'[가-힣]+|[a-z]+|[0-9]+', query)
-    # 1글자 토큰 제외 (너무 일반적)
-    return [t for t in tokens if len(t) > 1]
+    return [t for t in tokens if len(t) >= min_length]
 
 
 def calculate_keyword_boost(query_tokens: list[str], name: str, document: str) -> float:
     """키워드 매칭 부스트 계산
 
-    이름/요약/설명 위치에 따라 다른 가중치 적용
+    이름/요약/설명/태그 위치에 따라 다른 가중치 적용
     """
     if not query_tokens:
         return 0.0
-
-    # 한/영 동의어 매핑
-    synonyms = {
-        "얀데레": ["yandere"],
-        "판타지": ["fantasy"],
-        "로맨스": ["romance"],
-        "학원": ["school", "academy"],
-        "고등학생": ["high school", "학생"],
-        "메이드": ["maid"],
-        "집사": ["butler"],
-        "뱀파이어": ["vampire"],
-        "엘프": ["elf"],
-        "악마": ["demon", "devil"],
-        "천사": ["angel"],
-        "마법사": ["mage", "wizard", "witch"],
-        "기사": ["knight"],
-        "공주": ["princess"],
-        "왕자": ["prince"],
-    }
 
     # 문서에서 이름/요약/설명 분리
     name_lower = name.lower()
     doc_lower = document.lower()
 
-    # 요약과 설명 추출
+    # 요약과 설명, 태그 추출
     summary = ""
     description = ""
+    tags_text = ""
     for line in document.split("\n"):
         if line.startswith("요약:"):
             summary = line[3:].lower()
         elif line.startswith("설명:"):
             description = line[3:].lower()
-
-    # 매칭 확인 함수
-    def matches(text: str, tok: str) -> bool:
-        if tok in text:
-            return True
-        if tok in synonyms:
-            for syn in synonyms[tok]:
-                if syn in text:
-                    return True
-        return False
+        elif line.startswith("태그:"):
+            tags_text = line[3:].lower()
 
     total_boost = 0.0
-    matched_tokens = 0  # 매칭된 토큰 수
+    matched_tokens = 0
 
     for token in query_tokens:
-        # 토큰별 가중치 계산
         token_boost = 0.0
         token_matched = False
 
-        # 위치별 가중치 (중복 적용)
-        if matches(name_lower, token):
+        # 위치별 가중치 (중복 적용, elif 제거)
+        if matches_with_synonyms(name_lower, token):
             token_boost += 0.4   # 이름 매칭
             token_matched = True
-        if matches(summary, token):
+        if matches_with_synonyms(summary, token):
             token_boost += 0.8   # 요약 매칭: 최고 가중치
             token_matched = True
-        if matches(description, token):
+        if matches_with_synonyms(description, token):
             token_boost += 0.3   # 설명 매칭
             token_matched = True
-        elif matches(doc_lower, token):
-            token_boost += 0.5   # 기타 문서(태그 등)
+        if matches_with_synonyms(tags_text, token):
+            token_boost += 0.5   # 태그 매칭
+            token_matched = True
+
+        # 위 어디에도 매칭 안 됐지만 문서 어딘가에 있으면
+        if not token_matched and matches_with_synonyms(doc_lower, token):
+            token_boost += 0.2   # 기타 영역 매칭
             token_matched = True
 
         if token_matched:
@@ -102,8 +87,7 @@ def calculate_keyword_boost(query_tokens: list[str], name: str, document: str) -
     # 토큰 수로 정규화
     normalized_boost = total_boost / len(query_tokens)
 
-    # 키워드 커버리지 보정: 매칭된 키워드 비율에 따라 점수 조정
-    # 1/3 매칭 -> 0.33배, 2/3 매칭 -> 0.67배, 3/3 매칭 -> 1.0배
+    # 키워드 커버리지 보정
     coverage_ratio = matched_tokens / len(query_tokens)
     normalized_boost *= coverage_ratio
 
@@ -111,11 +95,13 @@ def calculate_keyword_boost(query_tokens: list[str], name: str, document: str) -
 
 
 def parse_download_count(download_str: str) -> int:
-    """다운로드 문자열을 숫자로 변환 (예: '623.9k' -> 623900)"""
+    """다운로드 문자열을 숫자로 변환 (예: '623.9k' -> 623900, '1,234' -> 1234)"""
     if not download_str:
         return 0
 
     download_str = download_str.strip().lower()
+    # 쉼표 제거
+    download_str = download_str.replace(',', '')
 
     try:
         if download_str.endswith('k'):
@@ -128,8 +114,34 @@ def parse_download_count(download_str: str) -> int:
         return 0
 
 
+def reciprocal_rank_fusion(
+    rankings: list[list[tuple[str, float]]],
+    k: int = 60,
+) -> list[tuple[str, float]]:
+    """RRF (Reciprocal Rank Fusion)로 여러 랭킹 결과 융합
+
+    Args:
+        rankings: 각 검색 방법의 결과 [(uuid, score), ...]
+        k: RRF 상수 (기본 60)
+
+    Returns:
+        융합된 결과 [(uuid, rrf_score), ...]
+    """
+    rrf_scores: dict[str, float] = {}
+
+    for ranking in rankings:
+        for rank, (uuid, _) in enumerate(ranking, start=1):
+            if uuid not in rrf_scores:
+                rrf_scores[uuid] = 0.0
+            rrf_scores[uuid] += 1.0 / (k + rank)
+
+    # 점수 내림차순 정렬
+    results = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    return results
+
+
 class CharacterSearcher:
-    """캐릭터 검색 엔진"""
+    """캐릭터 검색 엔진 (하이브리드: 벡터 + BM25)"""
 
     COLLECTION_NAME = "risurealm_characters"
     REALM_URL = "https://realm.risuai.net/character"
@@ -149,6 +161,11 @@ class CharacterSearcher:
         )
 
         self.collection = self.client.get_collection(self.COLLECTION_NAME)
+
+        # BM25 인덱스
+        self.bm25_index = BM25Index(data_dir)
+        if not self.bm25_index.load():
+            print("⚠️  BM25 인덱스가 없습니다. `python main.py index --rebuild` 실행 필요")
 
         # 임베딩 생성기
         self._embedder = embedder
@@ -206,6 +223,7 @@ class CharacterSearcher:
             desc=document or "",
             download=metadata.get("download", "0"),
             url=f"{self.REALM_URL}/{metadata['uuid']}",
+            img=metadata.get("img", ""),
             content_rating=metadata.get("content_rating", "unknown"),
             character_gender=metadata.get("character_gender", "other"),
             language=metadata.get("language", "english"),
@@ -214,50 +232,128 @@ class CharacterSearcher:
             score=score,
         )
 
-    def search(self, query: SearchQuery) -> SearchResponse:
-        """검색 실행"""
-        where_filter = self._build_where_filter(query)
-        fetch_limit = query.limit + query.offset
+    def _vector_search(
+        self,
+        query: str,
+        where_filter: Optional[dict],
+        top_k: int = 100,
+    ) -> list[tuple[str, float]]:
+        """벡터 검색 실행"""
+        query_embedding = self.embedder.embed_query(query)
 
-        # 검색어가 있으면 벡터 검색
+        results = self.collection.query(
+            query_embeddings=[query_embedding],
+            n_results=top_k,
+            where=where_filter,
+            include=["distances"],
+        )
+
+        ranking = []
+        ids = results["ids"]
+        distances = results["distances"]
+        if ids and ids[0]:
+            for i, uuid in enumerate(ids[0]):
+                distance = distances[0][i] if distances and distances[0] else 0
+                similarity = 1 - distance  # cosine distance -> similarity
+                ranking.append((uuid, similarity))
+
+        return ranking
+
+    def _bm25_search(self, query: str, top_k: int = 100) -> list[tuple[str, float]]:
+        """BM25 키워드 검색 실행"""
+        if self.bm25_index.bm25 is None:
+            return []
+        return self.bm25_index.search(query, top_k=top_k)
+
+    def search(self, query: SearchQuery) -> SearchResponse:
+        """하이브리드 검색 실행 (벡터 + BM25 + RRF)"""
+        where_filter = self._build_where_filter(query)
+        # 필터링으로 인한 손실을 고려하여 더 많이 가져옴
+        fetch_limit = max((query.limit + query.offset) * 3, 100)
+
+        # 검색어가 있으면 하이브리드 검색
         if query.q:
-            query_embedding = self.embedder.embed_query(query.q)
             query_tokens = tokenize_query(query.q)
 
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=fetch_limit,
-                where=where_filter,
-                include=["documents", "metadatas", "distances"],
+            # 1. 벡터 검색
+            vector_results = self._vector_search(query.q, where_filter, top_k=fetch_limit)
+
+            # 2. BM25 검색
+            bm25_results = self._bm25_search(query.q, top_k=fetch_limit)
+
+            # 3. RRF로 융합 (BM25 없어도 단일 랭킹으로 RRF 적용하여 점수 스케일 통일)
+            if bm25_results:
+                fused_results = reciprocal_rank_fusion([vector_results, bm25_results])
+            else:
+                # BM25 없어도 RRF 형식으로 변환 (점수 스케일 통일)
+                fused_results = reciprocal_rank_fusion([vector_results])
+
+            # 4. 융합된 UUID로 메타데이터 조회
+            fused_uuids = [uuid for uuid, _ in fused_results[:fetch_limit]]
+
+            if not fused_uuids:
+                return SearchResponse(total=0, results=[], query=query)
+
+            # Chroma에서 메타데이터 조회
+            chroma_results = self.collection.get(
+                ids=fused_uuids,
+                include=["documents", "metadatas"],
             )
 
-            # 결과 변환
+            # UUID -> 메타데이터 매핑
+            metadata_map: dict[str, dict] = {}
+            document_map: dict[str, str] = {}
+            chroma_metadatas = chroma_results["metadatas"]
+            chroma_documents = chroma_results["documents"]
+            for i, uuid in enumerate(chroma_results["ids"]):
+                if chroma_metadatas:
+                    metadata_map[uuid] = dict(chroma_metadatas[i])
+                if chroma_documents:
+                    document_map[uuid] = str(chroma_documents[i]) if chroma_documents[i] else ""
+
+            # RRF 점수 매핑
+            rrf_score_map = {uuid: score for uuid, score in fused_results}
+
+            # 결과 변환 (필터링 적용)
             items = []
-            if results["ids"] and results["ids"][0]:
-                for i, uuid in enumerate(results["ids"][0]):
-                    metadata = results["metadatas"][0][i]
-                    document = results["documents"][0][i] if results["documents"] else ""
-                    distance = results["distances"][0][i] if results["distances"] else 0
+            for uuid in fused_uuids:
+                if uuid not in metadata_map:
+                    continue
 
-                    # cosine distance -> similarity score
-                    similarity = 1 - distance
+                metadata = metadata_map[uuid]
+                document = document_map.get(uuid, "")
 
-                    # download 가중치 적용
-                    downloads = parse_download_count(metadata.get("download", "0"))
-                    download_boost = math.log10(downloads + 10) / 10  # 0.1 ~ 0.7 범위
+                # 필터 조건 확인 (BM25 결과는 필터 미적용이므로 여기서 필터링)
+                if where_filter:
+                    if not self._check_filter(metadata, where_filter):
+                        continue
 
-                    # 키워드 매칭 부스트
-                    name = metadata.get("name", "")
-                    keyword_boost = calculate_keyword_boost(query_tokens, name, document)
+                # download 가중치 적용 (영향력 강화)
+                downloads = parse_download_count(metadata.get("download", "0"))
+                # log 스케일로 변환 후 정규화 (0~1 범위)
+                # 100 -> 0.2, 10000 -> 0.4, 100000 -> 0.5, 1000000 -> 0.6
+                download_boost = math.log10(downloads + 10) / 10
 
-                    # 최종 점수 계산
-                    # 키워드 매칭을 주요 요소로, 유사도는 보조 요소로
-                    # score = 키워드부스트 + (유사도 * 가중치) + (다운로드 * 가중치)
-                    score = keyword_boost + similarity * 0.5 + download_boost * 0.05
+                # 키워드 매칭 부스트
+                name = metadata.get("name", "")
+                keyword_boost = calculate_keyword_boost(query_tokens, name, document)
 
-                    items.append(self._metadata_to_result(metadata, document, score))
+                # 최종 점수 계산
+                # RRF 점수: 약 0.01~0.03 (단일), 0.02~0.06 (융합)
+                # 키워드 부스트: 0~2 (정규화 전)
+                # 다운로드 부스트: 0.2~0.6
+                rrf_score = rrf_score_map.get(uuid, 0)
 
-            # 점수순 재정렬 (download 가중치 반영)
+                # 가중치 조정: RRF(기본) + 키워드(중요) + 다운로드(적절히 반영)
+                score = (
+                    rrf_score * 10          # RRF: 0.1~0.6
+                    + keyword_boost * 0.3   # 키워드: 0~0.6
+                    + download_boost * 0.2  # 다운로드: 0.04~0.12
+                )
+
+                items.append(self._metadata_to_result(metadata, document, score))
+
+            # 점수순 재정렬
             items.sort(key=lambda x: x.score, reverse=True)
 
             # offset 적용
@@ -272,10 +368,13 @@ class CharacterSearcher:
             )
 
             items = []
-            if results["ids"]:
-                for i, uuid in enumerate(results["ids"]):
-                    metadata = results["metadatas"][i]
-                    document = results["documents"][i] if results["documents"] else ""
+            result_ids = results["ids"]
+            result_metadatas = results["metadatas"]
+            result_documents = results["documents"]
+            if result_ids:
+                for i, uuid in enumerate(result_ids):
+                    metadata = dict(result_metadatas[i]) if result_metadatas else {}
+                    document = str(result_documents[i]) if result_documents and result_documents[i] else ""
                     items.append(self._metadata_to_result(metadata, document, 0.0))
 
             items = items[query.offset : query.offset + query.limit]
@@ -285,6 +384,27 @@ class CharacterSearcher:
             results=items[:query.limit],
             query=query,
         )
+
+    def _check_filter(self, metadata: dict, where_filter: dict) -> bool:
+        """메타데이터가 필터 조건을 만족하는지 확인"""
+        if "$and" in where_filter:
+            return all(self._check_filter(metadata, cond) for cond in where_filter["$and"])
+
+        for key, value in where_filter.items():
+            if key.startswith("$"):
+                continue
+
+            meta_value = metadata.get(key)
+
+            if isinstance(value, dict):
+                if "$in" in value:
+                    if meta_value not in value["$in"]:
+                        return False
+            else:
+                if meta_value != value:
+                    return False
+
+        return True
 
     def search_simple(
         self,

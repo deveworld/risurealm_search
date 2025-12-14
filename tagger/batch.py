@@ -7,9 +7,9 @@ from typing import Optional
 
 from groq import Groq
 
-from .client import SYSTEM_PROMPT, FALLBACK_MODELS
-from .models import CharacterTags, TaggingResult, TaggedCharacter, ContentRating, CharacterGender, Language
-from .tagger import format_character_prompt, load_characters, count_characters
+from .client import SYSTEM_PROMPT
+from .models import CharacterTags, TaggedCharacter, ContentRating, CharacterGender, Language
+from .tagger import format_character_prompt, load_characters
 
 # 배치용 모델 (gpt-oss-120b: 한국어 품질 우수)
 BATCH_MODEL = "openai/gpt-oss-120b"
@@ -142,6 +142,8 @@ class BatchTagger:
             file_response = self.client.files.create(file=f, purpose="batch")
 
         file_id = file_response.id
+        if file_id is None:
+            raise ValueError("파일 업로드 실패: file_id가 없습니다")
         print(f"업로드 완료: {file_id}")
 
         # 배치 작업 생성
@@ -375,14 +377,6 @@ class BatchTagger:
                         description=parsed.get("description", ""),
                     )
 
-                    tagging_result = TaggingResult(
-                        uuid=uuid,
-                        tags=tags,
-                        model_used=self.model,
-                        models_tried=[self.model],
-                        tagged_at=int(time.time()),
-                    )
-
                     # TaggedCharacter 생성
                     list_data = char["list_data"]
                     tagged = TaggedCharacter(
@@ -395,6 +389,7 @@ class BatchTagger:
                         tags=list_data["tags"],
                         haslore=list_data["haslore"],
                         hasAsset=list_data["hasAsset"],
+                        img=list_data.get("img", ""),
                         has_detail=char.get("detail_data") is not None,
                         detail_source=char["detail_source"],
                         llm_tags=tags,

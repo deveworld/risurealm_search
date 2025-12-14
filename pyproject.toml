@@ -13,6 +13,7 @@ dependencies = [
     "httpx>=0.28.0",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
+    "rank-bm25>=0.2.2",
     "tqdm>=4.67.1",
     "uvicorn>=0.34.0",
     "voyageai>=0.3.0",

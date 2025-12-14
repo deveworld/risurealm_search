@@ -119,6 +119,7 @@ def tag_to_output(char: dict, result: TaggingResult) -> TaggedCharacter:
         tags=list_data["tags"],
         haslore=list_data["haslore"],
         hasAsset=list_data["hasAsset"],
+        img=list_data.get("img", ""),
         has_detail=char.get("detail_data") is not None,
         detail_source=char["detail_source"],
         llm_tags=result.tags,

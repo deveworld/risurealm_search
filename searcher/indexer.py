@@ -2,12 +2,14 @@
 
 import json
 from pathlib import Path
+from collections.abc import Callable
 from typing import Optional
 
 import chromadb
 from chromadb.config import Settings
 
 from .embedder import VoyageEmbedder
+from .bm25 import BM25Index, format_bm25_document
 
 
 def format_document(char: dict) -> str:
@@ -58,6 +60,7 @@ def extract_metadata(char: dict) -> dict:
         "tags": ",".join(char.get("tags", [])),  # 원본 태그 사용
         "haslore": char.get("haslore", False),
         "hasAsset": char.get("hasAsset", False),
+        "img": char.get("img", ""),  # 이미지 해시
     }
 
 
@@ -125,7 +128,7 @@ class ChromaIndexer:
         self,
         rebuild: bool = False,
         batch_size: int = 100,
-        on_progress: Optional[callable] = None,
+        on_progress: Optional[Callable[[int, int], None]] = None,
     ):
         """전체 캐릭터 인덱싱 (증분 지원)"""
         if rebuild:
@@ -135,6 +138,7 @@ class ChromaIndexer:
 
         # 데이터 로드
         chars = self.load_tagged_data()
+        all_chars = chars  # BM25용 전체 데이터 보존
 
         # 증분 인덱싱: 기존 인덱스에 없는 것만 추가
         if not rebuild:
@@ -180,7 +184,18 @@ class ChromaIndexer:
                 on_progress(end, total)
             print(f"  저장: {end}/{total}")
 
-        print(f"인덱싱 완료: {total}개")
+        print(f"벡터 인덱싱 완료: {total}개")
+
+        # BM25 인덱스 구축 (항상 전체 데이터로)
+        print("\nBM25 인덱스 구축 중...")
+        bm25_docs = [
+            {"uuid": c["uuid"], "text": format_bm25_document(c)}
+            for c in all_chars
+        ]
+        bm25_index = BM25Index(self.data_dir)
+        bm25_index.build_index(bm25_docs)
+        bm25_index.save()
+
         return total
 
     def upsert_by_uuids(self, uuids: list[str], batch_size: int = 100):
@@ -231,6 +246,63 @@ class ChromaIndexer:
             )
 
         print(f"업데이트 완료: {total}개")
+        return total
+
+    def build_bm25_only(self):
+        """BM25 인덱스만 구축 (벡터 인덱스는 유지)"""
+        chars = self.load_tagged_data()
+
+        print(f"BM25 인덱스 구축 중... ({len(chars)}개 문서)")
+        bm25_docs = [
+            {"uuid": c["uuid"], "text": format_bm25_document(c)}
+            for c in chars
+        ]
+        bm25_index = BM25Index(self.data_dir)
+        bm25_index.build_index(bm25_docs)
+        bm25_index.save()
+
+        return len(chars)
+
+    def update_metadata_only(self, batch_size: int = 100):
+        """메타데이터만 업데이트 (임베딩 재생성 없음, API 비용 절감)"""
+        collection = self.get_or_create_collection()
+
+        # 기존 인덱스 확인
+        existing_ids = set(collection.get()["ids"]) if collection.count() > 0 else set()
+        if not existing_ids:
+            print("기존 인덱스가 없습니다. index --rebuild를 먼저 실행하세요.")
+            return 0
+
+        # 데이터 로드
+        chars = self.load_tagged_data()
+        # 기존 인덱스에 있는 것만 업데이트
+        chars = [c for c in chars if c["uuid"] in existing_ids]
+
+        if not chars:
+            print("업데이트할 캐릭터가 없습니다.")
+            return 0
+
+        total = len(chars)
+        print(f"메타데이터 업데이트: {total}개 (임베딩 재생성 없음)")
+
+        # 메타데이터 준비
+        metadatas = []
+        ids = []
+
+        for char in chars:
+            metadatas.append(extract_metadata(char))
+            ids.append(char["uuid"])
+
+        # Chroma에 메타데이터만 업데이트 (배치)
+        for i in range(0, total, batch_size):
+            end = min(i + batch_size, total)
+            collection.update(
+                ids=ids[i:end],
+                metadatas=metadatas[i:end],
+            )
+            print(f"  업데이트: {end}/{total}")
+
+        print(f"메타데이터 업데이트 완료: {total}개")
         return total
 
     def close(self):

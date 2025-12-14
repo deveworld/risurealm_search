@@ -55,6 +55,8 @@ class RisuRealmClient:
         """재시도 로직이 포함된 요청 (semaphore 없음)"""
         for attempt in range(self.max_retries):
             try:
+                if self._session is None:
+                    raise RuntimeError("Session not initialized. Use async with.")
                 async with self._session.get(url) as resp:
                     if resp.status == 429:
                         retry_after = float(resp.headers.get("Retry-After", 60))

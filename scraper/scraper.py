@@ -310,7 +310,7 @@ class RisuRealmScraper:
                         processed += 1
                         continue
 
-                    if result is None:
+                    if result is None or not isinstance(result, ScrapeResult):
                         continue
 
                     processed += 1
@@ -467,7 +467,7 @@ class RisuRealmScraper:
                 return
 
             # 상세 정보 수집
-            print(f"\n상세 정보 수집 중...")
+            print("\n상세 정보 수집 중...")
             success_count = 0
             fail_count = 0
 

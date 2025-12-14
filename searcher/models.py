@@ -24,6 +24,7 @@ class SearchResult(BaseModel):
     desc: str
     download: str
     url: str  # RisuRealm 링크
+    img: str = ""  # 이미지 해시
 
     # 메타데이터
     content_rating: str
@@ -34,6 +35,13 @@ class SearchResult(BaseModel):
 
     # 검색 메타
     score: float = 0.0  # 관련도 점수
+
+    @property
+    def img_url(self) -> str:
+        """이미지 URL 반환"""
+        if self.img:
+            return f"https://sv.risuai.xyz/resource/{self.img}"
+        return ""
 
 
 class SearchResponse(BaseModel):

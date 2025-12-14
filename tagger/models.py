@@ -64,6 +64,7 @@ class TaggedCharacter(BaseModel):
     tags: list[str]  # 원본 태그
     haslore: bool
     hasAsset: bool
+    img: str = ""  # 이미지 해시
 
     # 상세 데이터 요약
     has_detail: bool
