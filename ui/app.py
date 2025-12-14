@@ -11,7 +11,7 @@ from searcher import CharacterSearcher, SearchQuery
 
 CUSTOM_CSS = """
 :root {
-    --font-main: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+    --font-main: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
     --color-bg-page: #f9fafb;
     --color-card-bg: #ffffff;
     --color-text-main: #111827;
@@ -429,6 +429,19 @@ body, .gradio-container {
     z-index: 10;
 }
 
+/* Tablet (768px~1024px): Prevent slider overflow */
+@media (min-width: 768px) and (max-width: 1024px) {
+    #filter-accordion .row > div {
+        min-width: 0 !important;
+    }
+    #filter-accordion fieldset {
+        min-width: 0 !important;
+    }
+    #filter-accordion input[type="range"] {
+        min-width: 80px !important;
+    }
+}
+
 /* Mobile Responsive */
 @media (max-width: 768px) {
     .search-container {
@@ -445,15 +458,6 @@ body, .gradio-container {
 
     .brand-header {
         margin-bottom: 1.5rem;
-    }
-
-    /* 모바일에서 필터 접기 */
-    .filter-accordion .accordion-content {
-        display: none !important;
-    }
-
-    .filter-accordion.open .accordion-content {
-        display: block !important;
     }
 
     /* 카드 모바일 최적화 */
@@ -520,10 +524,19 @@ body, .gradio-container {
 """
 
 CUSTOM_HEAD = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource/pretendard@5.2.5/index.min.css">
 <style>
+/* Mobile: Hide accordion content until JS marks it ready */
+@media (max-width: 767px) {
+    #filter-accordion:not(.mobile-ready) > div:not(:first-child),
+    #filter-accordion:not(.mobile-ready) .wrap,
+    #filter-accordion:not(.mobile-ready) .content {
+        display: none !important;
+        visibility: hidden !important;
+        height: 0 !important;
+        overflow: hidden !important;
+    }
+}
 #detail-modal {
     position: fixed;
     top: 0;
@@ -601,24 +614,49 @@ document.addEventListener('keydown', function(e) {
 });
 
 // Mobile Filter Auto-Collapse
-document.addEventListener("DOMContentLoaded", function() {
-    // A slight delay to ensure Gradio has rendered the DOM
-    setTimeout(function() {
+(function() {
+    function handleAccordion() {
+        const accordion = document.querySelector("#filter-accordion");
+        if (!accordion) return false;
+
+        const toggle = accordion.querySelector(".label-wrap") ||
+                       accordion.querySelector("button:first-child");
+        if (!toggle) return false;
+
+        // Mobile: close accordion, then show it
         if (window.innerWidth < 768) {
-            const accordion = document.querySelector("#filter-accordion");
-            if (accordion) {
-                // Find the toggle button/header within the accordion
-                // Gradio structure varies, but usually finding the first button or label-wrap works
-                const toggle = accordion.querySelector("button") || accordion.querySelector(".label-wrap");
-                
-                // If the accordion is currently open (which it is by default), click to close
-                if (toggle && !accordion.classList.contains("closed")) {
-                    toggle.click();
-                }
+            const isOpen = toggle.classList.contains("open") ||
+                           accordion.querySelector(".wrap.open") !== null;
+            if (isOpen) {
+                toggle.click();
             }
+            // Mark as ready to remove CSS hiding
+            accordion.classList.add("mobile-ready");
+            return true;
         }
-    }, 500); // 500ms delay
-});
+
+        // Desktop: already open, just mark as ready
+        accordion.classList.add("mobile-ready");
+        return true;
+    }
+
+    // Retry mechanism for Gradio's async rendering
+    let attempts = 0;
+    const maxAttempts = 10;
+
+    function tryHandle() {
+        attempts++;
+        if (handleAccordion() || attempts >= maxAttempts) return;
+        setTimeout(tryHandle, 200);
+    }
+
+    // Start ASAP
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", tryHandle);
+    } else {
+        tryHandle();
+    }
+})();
 </script>
 """
 
@@ -833,7 +871,6 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
         theme=gr.themes.Base(
             primary_hue="indigo",
             radius_size="lg",
-            font=["Pretendard", "ui-sans-serif", "system-ui", "sans-serif"],
         ),
         css=CUSTOM_CSS,
         head=CUSTOM_HEAD,
@@ -843,7 +880,7 @@ def create_ui(data_dir: Path = Path("data"), share: bool = False) -> gr.Blocks:
             gr.HTML("""
             <div class="brand-header">
                 <div class="brand-title">RisuRealm</div>
-                <div class="brand-subtitle">취향을 발견하세요</div>
+                <div class="brand-subtitle">AI 캐릭터 검색 엔진</div>
             </div>
             """)
 
