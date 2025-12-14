@@ -27,12 +27,23 @@ RisuRealm(realm.risuai.net) 캐릭터 검색 엔진입니다. LLM 기반 메타�
 ### 요구사항
 
 - Python 3.11+
+- [Git LFS](https://git-lfs.github.com/) (대용량 데이터 파일용)
 - [uv](https://github.com/astral-sh/uv) (권장) 또는 pip
 
 ### 로컬 설치
 
 ```bash
-# 저장소 클론
+# Git LFS 설치 (필수 - 대용량 데이터 파일용)
+# Ubuntu/Debian
+sudo apt-get install git-lfs
+
+# macOS
+brew install git-lfs
+
+# Git LFS 초기화
+git lfs install
+
+# 저장소 클론 (LFS 파일 포함)
 git clone https://github.com/deveworld/risurealm_search.git
 cd risurealm_search
 
@@ -43,6 +54,8 @@ uv sync
 cp .env.example .env
 # .env 파일에 API 키 입력
 ```
+
+> **참고**: 이 저장소는 Git LFS를 사용하여 대용량 파일(`*.jsonl`, `*.sqlite3`)을 관리합니다. `git lfs install`을 먼저 실행하지 않으면 데이터 파일이 제대로 다운로드되지 않습니다.
 
 ### 환경변수
 
