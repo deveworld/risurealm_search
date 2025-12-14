@@ -155,6 +155,7 @@ class Tagger:
         self._processed = 0
         self._success = 0
         self._failed = 0
+        self._success_uuids: list[str] = []  # 성공한 UUID 목록
 
     def _setup_signal_handlers(self):
         """시그널 핸들러 설정"""
@@ -268,20 +269,20 @@ class Tagger:
                         if result.tags:
                             with self._stats_lock:
                                 self._success += 1
+                                self._success_uuids.append(char["uuid"])
                             self.progress.mark_completed(char["uuid"])
                             model_short = result.model_used.split("/")[-1][:15]
                             print(f"[{processed}/{pending_count}] {name[:30]:<30} OK ({model_short})")
+
+                            # 성공한 경우에만 저장
+                            tagged = tag_to_output(char, result)
+                            self._append_result(tagged)
                         else:
                             with self._stats_lock:
                                 self._failed += 1
-                            # 실패해도 tagged.jsonl에 기록 (tagging_error 포함)
-                            self.progress.mark_completed(char["uuid"])
+                            # 실패 시 완료 표시하지 않음 (다음 실행 시 재시도)
                             error_short = result.error[:35] if result.error else "unknown"
                             print(f"[{processed}/{pending_count}] {name[:30]:<30} FAIL: {error_short}")
-
-                        # 결과 저장
-                        tagged = tag_to_output(char, result)
-                        self._append_result(tagged)
 
                         # 진행률 출력 (50개마다)
                         if processed % 50 == 0:
@@ -325,4 +326,5 @@ class Tagger:
             "completed": total_completed,
             "success": self._success,
             "failed": self._failed,
+            "success_uuids": self._success_uuids,
         }

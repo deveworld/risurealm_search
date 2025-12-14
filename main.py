@@ -43,15 +43,21 @@ def cmd_update(args):
         delay=0.5,
         max_workers=3,
     )
-    tagger.run(count=0)  # 태깅 안 된 것만
+    result = tagger.run(count=0)  # 태깅 안 된 것만
 
     if args.no_index:
         return
 
-    # 3. 증분 인덱싱 (새 캐릭터만)
+    # 3. 인덱싱 (새로 태깅된 캐릭터 upsert)
     print("\n=== 인덱싱 시작 ===")
     with ChromaIndexer(data_dir=args.data_dir) as indexer:
-        indexer.index_all(rebuild=False)
+        success_uuids = result.get("success_uuids", [])
+        if success_uuids:
+            # 새로 태깅 성공한 캐릭터는 upsert (기존 인덱스 업데이트 포함)
+            indexer.upsert_by_uuids(success_uuids)
+        else:
+            # 새로 태깅된 것이 없으면 증분 인덱싱
+            indexer.index_all(rebuild=False)
 
 
 def cmd_full_update(args):
