@@ -3,6 +3,8 @@
 > [!WARNING]
 > 이 프로젝트는 NSFW(성인용) 콘텐츠를 포함한 데이터를 다룹니다. RisuRealm 플랫폼 특성상 성인용 AI 캐릭터가 다수 포함되어 있습니다.
 
+**데모**: https://risusearch.worldsw.dev
+
 RisuRealm(realm.risuai.net) 캐릭터 검색 엔진입니다. LLM 기반 메타데이터 추출과 하이브리드 검색(벡터 + BM25)을 통해 자연어로 캐릭터를 검색할 수 있습니다.
 
 ## 주요 기능
